@@ -1,7 +1,6 @@
 # SSBT 공모전 — 팩 조립 결정 중심(Decision-Aware) 사용 후 배터리 적응형 진단
 
 2026 SSBT 배터리 아이디어 공모전 제출 주제의 실험 코드 저장소.
-팀 "내 입이 입방전" / 지도교수 이종민.
 
 제안 내용·배경은 `docs/proposal.md`(제출 신청서), 실험 단계별 설계는
 `docs/experiment-design.md`를 참고. (둘 다 claude.ai 프로젝트 문서에서 복사해 넣을 것.)
