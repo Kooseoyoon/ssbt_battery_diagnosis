@@ -26,7 +26,7 @@ src/
   stage7_evaluate.py         # 최종 평가 및 그림
 notebooks/
   00_colab_bootstrap.ipynb   # Colab 공통 환경 세팅 노트북
-data/                        # 원본/가공 데이터 (git에는 올리지 않음, .gitignore 처리)
+data/                        # 원본/가공 데이터 (용량 이슈로 google drive에 보관, git에는 올리지 않음)
 results/                     # 실험 결과 CSV/그림
 docs/
   SETUP.md                   # GitHub + Google Drive 세팅 가이드
