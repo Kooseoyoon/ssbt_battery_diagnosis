@@ -3,7 +3,7 @@
 2026 SSBT 배터리 아이디어 공모전 제출 주제의 실험 코드 저장소.
 
 제안 내용·배경은 `docs/proposal.md`(제출 신청서), 실험 단계별 설계는
-`docs/experiment-design.md`를 참고. (둘 다 claude.ai 프로젝트 문서에서 복사해 넣을 것.)
+`docs/experiment-design.md`를 참고할 것.
 
 ## 환경
 
