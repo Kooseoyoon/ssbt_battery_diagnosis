@@ -16,22 +16,18 @@
 
 ## 1. Google Drive 공유 폴더 (데이터용)
 
-- 원본 데이터(Deep Sorting 85셀 데이터셋만 해도 Primary_use_phase 2.69GB + Second_life_phase 1.79GB ≈ 4.5GB)는 GitHub에 올리면 안 된다(용량 제한, 저장소 오염).
-- 
-1. 팀 공유 드라이브나, 본인 드라이브에 폴더를 만들고 **팀원 전체를 "편집자"로 공유**:
+- 원본 데이터(Deep Sorting 85셀 데이터셋만 해도 Primary_use_phase 2.69GB + Second_life_phase 1.79GB ≈ 4.5GB)는 구글 드라이브에.
    ```
    SSBT_battery_diagnosis/
      data/
        raw/         # 원본 zip/csv (Primary_use_phase.zip, Second_life_phase.zip 등)
        processed/   # Stage 0 산출물 (cap_raw.parquet, C_full.npz 등) — 선택적으로 Drive에도 캐시
    ```
-2. `notebooks/00_colab_bootstrap.ipynb`의 `GDRIVE_DATA_DIR`이 이 경로를 가리키도록 맞춘다(기본값이 이미 `/content/drive/MyDrive/SSBT_battery_diagnosis/data`로 돼 있으니, 본인 드라이브가 아니라 팀 공유 드라이브를 쓴다면 경로만 바꾸면 된다).
-3. 원본 데이터셋(Zenodo 14859405, Deep Sorting) 다운로드 후 `raw/`에 업로드. 용량이 크므로 Drive 데스크톱 앱이나 `rclone`으로 올리는 게 브라우저 업로드보다 빠르다.
-
+  이후 `notebooks/00_colab_bootstrap.ipynb`의 `GDRIVE_DATA_DIR`이 이 경로를 가리키도록 해서 구글 드라이브에서 바로 dataset 받아 작업하도록 한다.
 
 ---
 
-## 3. 로컬/서버 환경 세팅
+## 2. 로컬/서버 환경 세팅
 
 ```bash
 cd ssbt-battery-diagnosis
@@ -48,7 +44,7 @@ export SSBT_DATA_DIR=/path/to/data   # ~/.bashrc 등에 추가해두면 편함
 
 ---
 
-## 4. Colab에서 시작하기
+## 3. Colab에서 시작하기
 
 1. `notebooks/00_colab_bootstrap.ipynb`를 Colab에서 열기 (Drive에 올려두고 더블클릭, 또는 GitHub 저장소 URL로 직접 열기: colab.research.google.com → File → Open notebook → GitHub 탭).
 2. 셀을 순서대로 실행 (Drive 마운트 → 저장소 클론/풀 → `requirements.txt` 설치 → 경로 확인).
@@ -58,7 +54,7 @@ export SSBT_DATA_DIR=/path/to/data   # ~/.bashrc 등에 추가해두면 편함
 
 ---
 
-## 5. 다음 단계
+## 4. 다음 단계
 
 - `src/stage0_preprocess.py`의 TODO(zip 파싱 로직)부터 채운다 — 이게 끝나야 이후 단계가 전부 돌아간다.
 - 최소 경로(공모전 일정 기준, `claude/experiment-design.md` 참고): Stage 0 → 1 → 3(GP) → 4 → 5(DFF) → 7(Figure A).
