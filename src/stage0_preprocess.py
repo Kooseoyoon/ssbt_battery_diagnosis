@@ -18,7 +18,7 @@ MIN_DISCHARGE_CAP_AH = 0.3   # 불완전 사이클 제거 기준
 MIN_CYCLES = 20              # 20사이클 미만 셀 제외
 NOMINAL_CAP_AH = 2.4         # SOH 정규화 기준
 EOL_SOH = 0.60               # SOH 60% 기준 EOL 사이클 계산
-RPT_CURRENT_MAX_A = 1.0  # A, 방전 전류 (정전류 CC)
+RPT_CURRENT_MAX_A = 1.0  # A, 판별 기준값: 방전 전류 중앙값이 이보다 작으면 RPT(약 0.48A), 크면 aging(2.4A)
 CAP_SOURCE = "rpt" # "rpt" 또는 "aging"
 
 # 0. 파일 경로, Second_life_phase.zip 압축 해제
@@ -57,6 +57,11 @@ def _summarize_cell(df: pd.DataFrame) -> pd.DataFrame:
     out["cycle_type"] = np.where(out["i_dis_A"] < RPT_CURRENT_MAX_A, "rpt", "aging")
     # 방전이 아예 없는 사이클(전류 정보 없음)은 판별 불가 → 이후 용량 필터에서 대부분 제거됨
     out.loc[out["i_dis_A"].isna(), "cycle_type"] = "unknown"
+
+    # 중단된 사이클 제거: 저속(RPT) 방전인데 용량이 직전 1C 사이클보다 작으면 측정이 끊긴 것
+    # (예: cell 74의 487사이클 0.38Ah). C_full에서 빠지도록 "invalid"로 표시한다.
+    prev_aging = out["cap_Ah"].where(out["cycle_type"] == "aging").ffill().shift(1)
+    out.loc[(out["cycle_type"] == "rpt") & (out["cap_Ah"] < prev_aging), "cycle_type"] = "invalid"
     return out
  
  
