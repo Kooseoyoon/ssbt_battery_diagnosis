@@ -12,3 +12,8 @@ results/*
 *.npy
 *.parquet
 .DS_Store
+data/raw/
+data/processed/external_check/
+*.log
+!data/processed/folds.csv
+!data/processed/ds_file_to_battery_id.csv

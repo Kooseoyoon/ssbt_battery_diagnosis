@@ -1,0 +1,226 @@
+[
+ {
+  "name": "cap_rpt_last",
+  "group": 1,
+  "group_name": "0.2C 방전 용량",
+  "unit": "Ah",
+  "desc": "마지막 측정 사이클의 0.2C 방전 용량"
+ },
+ {
+  "name": "cap_1c_last",
+  "group": 2,
+  "group_name": "1C 방전 용량",
+  "unit": "Ah",
+  "desc": "마지막 1C 사이클의 방전 용량"
+ },
+ {
+  "name": "cap_chg_last",
+  "group": 3,
+  "group_name": "충전 용량",
+  "unit": "Ah",
+  "desc": "마지막 사이클의 충전 용량"
+ },
+ {
+  "name": "rate_ratio",
+  "group": 4,
+  "group_name": "율속 용량비",
+  "unit": "-",
+  "desc": "마지막 1C 용량 ÷ 마지막 0.2C 용량"
+ },
+ {
+  "name": "cc_time_last",
+  "group": 5,
+  "group_name": "정전류 구간",
+  "unit": "s",
+  "desc": "마지막 1C 사이클 충전의 정전류 구간 시간"
+ },
+ {
+  "name": "cc_cap_last",
+  "group": 5,
+  "group_name": "정전류 구간",
+  "unit": "Ah",
+  "desc": "마지막 1C 사이클 충전의 정전류 구간 용량"
+ },
+ {
+  "name": "cv_time_last",
+  "group": 6,
+  "group_name": "정전압 구간",
+  "unit": "s",
+  "desc": "마지막 1C 사이클 충전의 정전압 구간 시간"
+ },
+ {
+  "name": "cv_frac_last",
+  "group": 6,
+  "group_name": "정전압 구간",
+  "unit": "-",
+  "desc": "정전압 구간 용량 ÷ 전체 충전 용량"
+ },
+ {
+  "name": "cv_tau_last",
+  "group": 7,
+  "group_name": "정전압 전류 감쇠",
+  "unit": "s",
+  "desc": "정전압 구간 ln(I) 대 시간 기울기의 역수(감쇠 시상수)"
+ },
+ {
+  "name": "e_dchg_1c_last",
+  "group": 8,
+  "group_name": "충방전 에너지",
+  "unit": "Wh",
+  "desc": "마지막 1C 사이클 방전 에너지"
+ },
+ {
+  "name": "e_chg_last",
+  "group": 8,
+  "group_name": "충방전 에너지",
+  "unit": "Wh",
+  "desc": "마지막 1C 사이클 충전 에너지"
+ },
+ {
+  "name": "ce_mean",
+  "group": 9,
+  "group_name": "효율",
+  "unit": "-",
+  "desc": "1C 사이클 쿨롱 효율(방전 용량 ÷ 충전 용량) 평균"
+ },
+ {
+  "name": "ee_mean",
+  "group": 9,
+  "group_name": "효율",
+  "unit": "-",
+  "desc": "1C 사이클 에너지 효율(방전 에너지 ÷ 충전 에너지) 평균"
+ },
+ {
+  "name": "v_dchg_mean_1c",
+  "group": 10,
+  "group_name": "평균 방전 전압",
+  "unit": "V",
+  "desc": "마지막 1C 사이클 방전 에너지 ÷ 방전 용량"
+ },
+ {
+  "name": "dqdv_peak_v",
+  "group": 11,
+  "group_name": "dQ/dV 피크",
+  "unit": "V",
+  "desc": "마지막 측정 사이클 0.2C 방전 dQ/dV 주 피크 전압"
+ },
+ {
+  "name": "dqdv_peak_h",
+  "group": 11,
+  "group_name": "dQ/dV 피크",
+  "unit": "Ah/V",
+  "desc": "같은 피크의 높이"
+ },
+ {
+  "name": "dq_var",
+  "group": 12,
+  "group_name": "ΔQ(V)",
+  "unit": "Ah²",
+  "desc": "첫·마지막 측정 사이클 방전 곡선 ΔQ(V)의 분산"
+ },
+ {
+  "name": "dq_min",
+  "group": 12,
+  "group_name": "ΔQ(V)",
+  "unit": "Ah",
+  "desc": "ΔQ(V) 최솟값"
+ },
+ {
+  "name": "dq_mean",
+  "group": 12,
+  "group_name": "ΔQ(V)",
+  "unit": "Ah",
+  "desc": "ΔQ(V) 평균"
+ },
+ {
+  "name": "ir_after_chg",
+  "group": 13,
+  "group_name": "펄스 내부저항",
+  "unit": "Ohm",
+  "desc": "마지막 측정 사이클, 충전 후 휴지 다음 펄스 저항"
+ },
+ {
+  "name": "ir_after_dchg",
+  "group": 13,
+  "group_name": "펄스 내부저항",
+  "unit": "Ohm",
+  "desc": "마지막 측정 사이클, 방전 후 휴지 다음 펄스 저항"
+ },
+ {
+  "name": "relax_dchg",
+  "group": 14,
+  "group_name": "휴지 전압 회복",
+  "unit": "V",
+  "desc": "1C 방전 후 휴지 동안 전압 상승량(평균)"
+ },
+ {
+  "name": "relax_chg",
+  "group": 14,
+  "group_name": "휴지 전압 회복",
+  "unit": "V",
+  "desc": "충전 후 휴지 동안 전압 하강량(1C 사이클 평균)"
+ },
+ {
+  "name": "v_jump_dchg",
+  "group": 15,
+  "group_name": "휴지 첫 점 전압 점프",
+  "unit": "V",
+  "desc": "1C 방전 마지막 점 → 휴지 첫 점 전압 차(평균)"
+ },
+ {
+  "name": "v_hyst_1c",
+  "group": 16,
+  "group_name": "충방전 히스테리시스",
+  "unit": "V",
+  "desc": "마지막 1C 사이클 평균 충전 전압 − 평균 방전 전압"
+ },
+ {
+  "name": "temp_rise_1c",
+  "group": 17,
+  "group_name": "1C 방전 온도",
+  "unit": "°C",
+  "desc": "1C 방전 중 온도 상승폭(평균)"
+ },
+ {
+  "name": "temp_max_1c",
+  "group": 17,
+  "group_name": "1C 방전 온도",
+  "unit": "°C",
+  "desc": "1C 방전 중 최고온도(평균)"
+ },
+ {
+  "name": "temp_rise_rpt",
+  "group": 18,
+  "group_name": "0.2C 방전 온도",
+  "unit": "°C",
+  "desc": "마지막 측정 사이클 0.2C 방전 중 온도 상승폭"
+ },
+ {
+  "name": "cool_rate_1c",
+  "group": 19,
+  "group_name": "휴지 냉각 속도",
+  "unit": "°C/s",
+  "desc": "1C 방전 후 휴지 동안 (시작 − 끝 온도) ÷ 휴지 시간(평균)"
+ },
+ {
+  "name": "slope1_cap_1c",
+  "group": 20,
+  "group_name": "열화 속도",
+  "unit": "Ah/cycle",
+  "desc": "1C 방전 용량 대 사이클 1차 회귀 기울기"
+ },
+ {
+  "name": "slope2_cap_1c",
+  "group": 20,
+  "group_name": "열화 속도",
+  "unit": "Ah/cycle²",
+  "desc": "1C 방전 용량 대 사이클 2차 회귀의 2차 계수(점 3개 이상)"
+ },
+ {
+  "name": "drop_cap_rpt",
+  "group": 20,
+  "group_name": "열화 속도",
+  "unit": "Ah",
+  "desc": "첫 측정 사이클 − 마지막 측정 사이클 0.2C 용량"
+ }
+]
