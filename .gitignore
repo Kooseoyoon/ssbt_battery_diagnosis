@@ -17,3 +17,9 @@ data/processed/external_check/
 *.log
 !data/processed/folds.csv
 !data/processed/ds_file_to_battery_id.csv
+!data/processed/features_v2.npz
+!data/processed/features_v2_long.csv
+!data/processed/cycle_summary_v2.csv
+!results/stage2_select/
+!results/stage2_stability/
+!results/stage2_corr/
