@@ -1,0 +1,27 @@
+{
+ "decided": "2026-11-06",
+ "main": {
+  "name": "S7b",
+  "features": ["ce__mean", "q_rpt__last", "q_rpt_low__last", "dqdv_p1_area__last",
+               "rate_ratio__last", "relax_dchg__last", "cool_rate__slope1"],
+  "types": {
+   "ce__mean": "부반응(쿨롱 효율)",
+   "q_rpt__last": "구간 용량: 전체 0.2C 용량",
+   "q_rpt_low__last": "구간 용량: 3.5->3.0V",
+   "dqdv_p1_area__last": "구간 용량: 3.8->3.6V",
+   "rate_ratio__last": "분극·저항: 순간(1C/0.2C 용량비)",
+   "relax_dchg__last": "분극·저항: 느린 이완(방전 후 휴지 전압 회복)",
+   "cool_rate__slope1": "열: 휴지 중 냉각 속도의 사이클별 기울기"
+  },
+  "note": "Stage 3 GP 주 입력. 주 결과는 이 묶음으로 고정"
+ },
+ "sensitivity": {
+  "name": "S2",
+  "features": ["ce__mean", "dqdv_p1_h__last", "dqdv_p1_v__last"],
+  "note": "민감도 분석 전용. 결과를 보고 주 입력을 바꾸지 않는다"
+ },
+ "how_to_load": "d = np.load('data/processed/features_v2.npz'); names = list(d['feature_names']); idx = [names.index(f) for f in features]; X = d['X'][:, :, idx]  # (셀 86, 진단량 7 = d['budgets'] 10~40, 특징), 셀 순서는 d['cell_ids']",
+ "preprocessing": "결측(셀 67·68의 cool_rate__slope1, 온도 센서 이상)은 학습 fold의 중앙값으로 채우고, 표준화도 학습 fold 기준으로. 전체 86셀로 미리 하지 않는다",
+ "evidence": "results/stage2_sets/(묶음 비교), results/stage2_robust/(강건성), results/stage2_stability/(선택 빈도), experiment-decisions.md Stage 2 항목",
+ "performance": "분할 시드 10 x 5-fold, 리지: Spearman 7단계 평균 0.652 +- 0.020(현재 용량 0.323). 같은 86셀 결과로 만든 묶음이라 낙관적이며, fold 안 선택 절차의 정직한 추정은 0.60"
+}

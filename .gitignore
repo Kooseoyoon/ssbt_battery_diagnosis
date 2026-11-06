@@ -23,3 +23,6 @@ data/processed/external_check/
 !results/stage2_select/
 !results/stage2_stability/
 !results/stage2_corr/
+!results/stage2_sets/
+!results/stage2_robust/
+!results/stage2_final_features.json

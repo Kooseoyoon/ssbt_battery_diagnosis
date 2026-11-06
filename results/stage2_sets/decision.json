@@ -1,0 +1,31 @@
+{
+ "eligible(7단계 모두 S0보다 높음)": [
+  "S1_ce",
+  "S2_ce+A",
+  "S3_ce+B",
+  "S4_ce+A+pol",
+  "S5_ce+B+pol",
+  "S6a_S4+ce_std",
+  "S6b_S5+ce_std",
+  "S7a_S4+heat",
+  "S7b_S5+heat",
+  "R_screen_top20"
+ ],
+ "best": "S7b_S5+heat",
+ "best_score": 0.652,
+ "best_seed_sd": 0.0204,
+ "threshold": 0.6316,
+ "within_threshold": [
+  "S2_ce+A",
+  "S3_ce+B",
+  "S5_ce+B+pol",
+  "S7a_S4+heat",
+  "S7b_S5+heat"
+ ],
+ "selected": "S2_ce+A",
+ "selected_features": [
+  "ce__mean",
+  "dqdv_p1_h__last",
+  "dqdv_p1_v__last"
+ ]
+}
