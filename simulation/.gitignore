@@ -1,0 +1,14 @@
+.venv/
+.cache/
+__pycache__/
+.ipynb_checkpoints/
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+!data/processed/folds.csv
+!data/processed/folds.metadata.json
+results/*
+!results/.gitkeep
+figures/*
+!figures/.gitkeep

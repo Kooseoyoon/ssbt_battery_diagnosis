@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-05",
+  "status": "passed",
+  "unit_tests": 35,
+  "real_capacity_control_rows": 32,
+  "control_reproduction_matches_snapshot": true,
+  "capacity_eol_and_folds_hashes_unchanged": true,
+  "controls_run_from_repository_root": true,
+  "learned_comparison_ready": false,
+  "checks": [
+    {
+      "command": [
+        "python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-q"
+      ],
+      "cwd": "repository root",
+      "returncode": 0,
+      "stdout": "",
+      "stderr": "----------------------------------------------------------------------\nRan 35 tests in 0.049s\n\nOK\n"
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "battery_sim.experiment_v3",
+        "--stage",
+        "controls"
+      ],
+      "cwd": "repository root",
+      "returncode": 0,
+      "stdout": "Control inputs ready: True\nLearned comparison ready: False\n - Missing input: features\n - Missing input: selection\n - Before learned comparison: verify prefix provenance and feature selection scope; implement nested fit runner.\nReal-capacity controls complete; learned Stage2 comparison has not run.\npack_size         4         8         12        16\ntotal_cost                                        \n860         7704.393  3374.804  2104.898  1477.988\n1290        7369.421  3139.121  2067.727  1463.776\n1720        7605.423  3042.367  1963.880  1392.185\n2150        6941.466  3120.218  2051.037  1393.471\n2580        6761.720  3012.233  1975.626  1348.915\n3010        6769.517  2865.628  1857.594  1303.974\n3440        6476.763  2826.378  1793.846  1276.047\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "python",
+        "-m",
+        "battery_sim.value_contract_smoke"
+      ],
+      "cwd": "repository root",
+      "returncode": 0,
+      "stdout": "           n_used  n_unused  V_current_only_Ah_cycles\npack_size                                            \n4            84.0       2.0                  7704.393\n8            80.0       6.0                  3374.804\n12           84.0       2.0                  2104.898\n16           80.0       6.0                  1477.988\n",
+      "stderr": ""
+    }
+  ]
+}

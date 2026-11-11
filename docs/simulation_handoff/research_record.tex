@@ -1,0 +1,467 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage{kotex}
+\usepackage[margin=22mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,array,enumitem,graphicx,longtable}
+\usepackage{xcolor,hyperref,fancyvrb}
+\hypersetup{unicode=true,colorlinks=true,linkcolor=blue!40!black,urlcolor=blue!50!black}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{.5em}
+\setlength{\emergencystretch}{3em}
+\setlist[itemize]{leftmargin=1.5em,itemsep=3pt,topsep=3pt}
+\setlist[enumerate]{leftmargin=1.8em,itemsep=4pt,topsep=3pt}
+\renewcommand{\arraystretch}{1.2}
+\newcommand{\file}[1]{{\small\nolinkurl{#1}}}
+\newcommand{\state}[1]{\textbf{상태: #1}}
+\title{\textbf{폐배터리 적응형 진단 연구}\\[.4em]\large 연구 진행 기록 및 후속 실험 인계자료}
+\author{}
+\date{2026년 11월 5일 기준}
+\begin{document}
+\maketitle
+\vspace{-1em}
+
+\textbf{문서 목적}\quad 이 자료는 연구를 새로 맡은 사람이 시도한 이유, 실행 조건, 결과, 판단 근거와 다음 작업을 파악하고 코드를 재현하기 위한 진행 기록이다. 새 시도가 끝날 때마다 같은 구조의 실험 항목을 추가하고 현재 상태를 갱신한다.
+
+\section*{현재 어디까지 진행되었는가?}
+\begin{itemize}
+\item \textbf{현재 기준:} 최소 용량 누적 $V$(Ah·사이클)와 진단 전 oracle 대비 총 regret을 사용한다. E3 절이 현재 규약이며 E4는 개선 실험 설계이다. V1/V2 점수는 구지표 탐색 기록이다.
+\item 실제 86셀 데이터의 전처리 형식과 EOL 기준을 확인하고, 관측 이후의 미래를 숨기는 시뮬레이터를 구성하였다.
+\item \textbf{V1:} 학습 없는 국소 선형 수명모델로 검사 선택 방법 4개를 비교하였다. 95점 목표에 도달하지 못했고, 추가 검사의 순이득을 확인하지 못했다.
+\item \textbf{V2:} 학습·보정·평가 셀을 분리하고 Ridge·GP, 예측구간 보정, 시나리오 기반 팩 교환을 비교하였다. RUL 오차는 감소했으나 팩 점수는 일부 조건에서 악화되었다.
+\item \textbf{E4:} Stage 2 추가 특징과 용량 특징의 동일 조건 비교를 설계하고, 실제 용량 대조군 32개 조건 및 입력 점검을 실행했다. 특징 파일 미수신으로 학습 비교는 아직 미실행이다.
+\item \textbf{현재 판단:} 새 $V$ 평가 코어와 Current-only 계산을 확인했다. 새 규약의 GP·적응 검사 전체 재실험과 최종 방법 선정은 아직 진행하지 않았다.
+\end{itemize}
+
+\section*{시도 이력과 읽는 순서}
+\begin{tabular}{p{.12\linewidth}p{.46\linewidth}p{.32\linewidth}}
+\toprule
+ID & 시도와 목적 & 현재 판단 \\
+\midrule
+D0 & 데이터 구조·셀 ID·수명 기준 확인 & 실행 기반으로 사용 \\
+E1 & 선형모델에서 추가 검사 선택 전략 비교 & 기대했던 검사 이득 미확인 \\
+E1-D & 모든 셀의 관측량을 늘려 예측 병목 진단 & 관측량 증가만으로 해결 안 됨 \\
+E2-A & 셀 분리와 동일 조건 비교 체계 구성 & 후속 실험의 평가 틀 \\
+E2-B & 다른 셀의 이력으로 Ridge·GP 학습 & 예측 오차 감소, 팩 이득은 혼재 \\
+E2-C & 별도 셀로 80\% 예측구간 보정 & 포함률 상승, 구간 폭 증가 \\
+E2-D & 시나리오에서 팩 간·미사용 셀 교환 & 일관된 실제 이득 없어 채택 보류 \\
+E3 & 팀 규약으로 $V$·진단량·regret 정비 & 평가 코어 구현, 전체 재실험 준비 \\
+E4 & 추가 특징의 예측 개선이 팩 가치로 이어지는지 설계 & 대조군 실행, 학습 비교 입력 대기 \\
+\bottomrule
+\end{tabular}
+
+
+\clearpage
+\section{E3: 현재 팩 가치와 regret 규약}
+\state{팀 피드백을 현재 기준으로 반영. 구지표 결과의 수치 변환은 하지 않는다.}
+
+\subsection*{팩 성능: 용량 누적 $V$}
+셀 $i$의 진단량 $n_i$는 실제 진단에 소비한 사이클 수이다. RPT 열은 0부터 시작하며 $j$번째 열은 $1+5j$사이클이다.
+\[
+j_{0,i}=n_i/5,\qquad
+m_{p,k}=\min_{i\in P_p(A)}C_{\mathrm{full}}[i,j_{0,i}+k],
+\]
+\[
+\kappa_p=\min\{k\ge0:m_{p,k}<1.44\},\qquad
+V(A,\mathbf n)=\sum_p5\sum_{k=0}^{\kappa_p-1}m_{p,k}.
+\]
+$V$의 단위는 Ah·사이클이다. 1.44 Ah와 같은 값은 포함하고 처음 그 아래가 되는 시점부터 제외한다. 이후 용량이 회복되어도 해당 팩의 사용을 다시 시작하지 않는다. 각 셀의 미래는 자체 $n_i$ 이후에서 시작하여 공통 재사용 경과 $k$에 맞춘다.
+
+\textbf{진단과 미래의 경계}\quad $n_i=10$이면 입력으로 공개하는 열은 0·1(사이클 1·6), 미래 평가 시작은 열 2(사이클 11)이다. 마지막 RPT 사이클 6을 진단량 6으로 세지 않는다. 일반적으로 입력은 $j<n_i/5$, 미래는 $j\ge n_i/5$이다. EOL 이전 결측을 용량 0으로 바꾸지 않는다.
+
+\subsection*{총 regret와 원인 분해}
+전체 재고 86셀과 같은 팩 크기에서 참조값을 정의한다. 배정 $A$는 $P=\lfloor86/m\rfloor$개 팩과 미사용 셀의 선택을 포함한다. 방법과 oracle은 서로 다른 미사용 셀을 선택할 수 있다.
+\[
+V_O=\max_A V(A,\mathbf 0),\qquad
+V_O(\mathbf n)=\max_A V(A,\mathbf n).
+\]
+두 번째 oracle은 방법별로 \textbf{같은 셀별 진단량 벡터}를 사용해야 한다. 총 진단량만 같아도 벡터가 다르면 별도로 계산한다.
+\[
+R=\frac{V_O-V_{\mathrm{method}}}{V_O},\qquad
+R_{\mathrm{diag}}=\frac{V_O-V_O(\mathbf n)}{V_O},\qquad
+R_{\mathrm{assign}}=\frac{V_O(\mathbf n)-V_{\mathrm{method}}}{V_O}.
+\]
+세 항의 분모는 모두 진단 전 $V_O$로 통일하며, $R=R_{\mathrm{diag}}+R_{\mathrm{assign}}$를 확인한다. 음수가 생기면 임의로 0으로 자르지 않고 규약·관측 궤적·oracle 근사 등의 원인을 확인한다.
+
+\textbf{이전 점수와의 관계}\quad 기존 $100U/U^*$는 진단 이후 상태의 배정 손실에 초점이 있었다. 새 규약은 목적함수와 분모가 모두 다르므로 이전 점수를 새 $R$ 또는 $R_{\mathrm{assign}}$로 수치 환산할 수 없다. 새 $V$에서도 $(V_O(\mathbf n)-V_{\mathrm{method}})/V_O(\mathbf n)$는 여기서 정의한 $R_{\mathrm{assign}}$과 분모가 다르다.
+
+\textbf{oracle 계산 확인 중}\quad 미래 용량을 안다는 사실만으로 수명순 정렬이 이 $V$의 전역 최적해임을 보장하지 않는다. 큰 후보군의 oracle 계산 절차는 팀 확인 중이다. 코드에는 작은 집합의 완전 탐색과, 매 시점 재그룹화를 허용한 완화 상한을 분리하였다. 완화 상한을 실행 가능한 고정 팩 oracle로 표시하지 않는다.
+
+\clearpage
+\section{E3: 진단량·Current-only·팩 크기·공유 fold}
+\subsection*{현재 고정한 조건}
+\begin{itemize}
+\item 기본 진단량은 셀당 10사이클, 추가 단위는 5사이클, 상한은 40사이클이다. 비교 지점은 $10N,15N,20N,25N,30N,35N,40N$의 총 진단량이다.
+\item Current-only는 모든 셀 $n_i=10$에서 \file{C_full}의 열 1 용량을 큰 순서로 정렬해 앞에서부터 묶는다. 큰 예산 지점에서 나중 관측으로 다시 정렬하는 방법은 이 기준선과 구분해야 한다.
+\item 팩 크기는 4·8·12·16직렬이다. 미사용은 각각 2·6·2·6셀로 배정 과정에서 결정한다. Current-only는 사이클 6 용량 하위 셀을 미사용으로 남긴다. 탐색은 팩 간 교환과 팩--미사용 간 교환을 포함한다. 미사용 셀의 $V$ 기여는 0이며 재고 가치·폐기 비용은 목적함수에 없다.
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+직렬 셀 수 & 사용 셀 수 & 미사용 셀 수 & Current-only $V$ 확인값 \\
+\midrule
+4  & 84 & 2 & 7,704.393 \\
+8  & 80 & 6 & 3,374.804 \\
+12 & 84 & 2 & 2,104.898 \\
+16 & 80 & 6 & 1,477.988 \\
+\bottomrule
+\end{tabular}
+\end{center}
+확인값은 86셀 전체에서 사이클 6 용량으로 배정한 결과이며 단위는 Ah·사이클이다. 모든 경우 진단 비용은 860이다. 4·12직렬의 미사용 셀 ID는 69,71이고, 8·16직렬은 9,59,67,69,71,72이다. oracle·총 regret·GP 성능 결과는 아니다. 이전 무작위 사전 제외 결과는 별도 보관했으며 현 규약에서 사용하지 않는다.
+
+\textbf{확정 예산}\quad $N=86$은 미사용 후보를 포함한 전체 재고이다. 모든 방법은 86셀 전체를 진단 대상으로 두고, 최종 미사용 셀에 쓴 비용도 합산한다. 공통 지점은 860, 1,290, 1,720, 2,150, 2,580, 3,010, 3,440 셀-사이클이다. 초기 비용은 $86\times10=860$, 구간당 추가 비용은 $86\times5=430$이다.
+
+라운드 선택 수는 $k=9$로 고정하며 기본 구간은 9셀씩 9회와 5셀씩 1회이다. 라운드 안에서는 중복 선택하지 않고, 다른 라운드에서는 재선택할 수 있다. 다만 40사이클 상한 도달로 선택 가능한 셀이 부족하면 라운드를 줄이고 정확한 공통 예산까지 진행한다. 균등 선택 장부에서는 6구간 모두 기본 10라운드로 도달했고 마지막에 전 셀 $n_i=40$임을 확인했다.
+
+\textbf{DFF 첫 실험안}\quad 기존 확정식은 없으므로 팩 동료 교체 비율을 첫 후보로 정의했다. $G_i(A)$는 셀 $i$를 제외한 같은 팩 동료 집합이다. 두 배정 모두 사용이면
+\[
+d_i(A^*,A^{(s)})=1-\frac{|G_i(A^*)\cap G_i(A^{(s)})|}{m-1}.
+\]
+한쪽만 미사용이면 1, 양쪽 모두 미사용이면 0으로 두고 시나리오 평균을 DFF로 사용한다. 여기서 $A^*$는 정책이 관측·예측으로 정한 기준 배정이며, 참 미래 oracle을 정책에 주지 않는다. 팩 번호를 바꾸어도 값은 변하지 않는다. 이 지표는 배정 변동성이며 추가 진단의 가치나 EVOI를 보장하지 않는다. 향후 균등·무작위 검사와 같은 비용에서 $V$와 regret을 비교하여 유지·수정한다.
+
+\subsection*{셀 단위 5-fold 공유}
+원본 전처리 폴더에는 \file{folds.csv}가 없었다. 현재 로컬 \file{simulation/data/processed/folds.csv}에 \file{cell_id,fold}를 저장했으며 fold 번호는 0부터 4이다. 시드 42의 셀 단위 무작위 5-fold 임시본이고, 팀 공식 공유본이 오면 그것을 우선한다. 모든 관측 시점은 물리적 셀의 fold를 그대로 따른다.
+
+한 평가 fold는 17~18셀이므로 12·16직렬에서는 팩이 하나뿐이다. 예측모델 평가용 fold와 여러 팩의 배정 효과를 비교할 후보군은 구분해 설계해야 한다. 기존 V2의 2-fold 결과를 공유 5-fold 결과로 소급 표시하지 않는다.
+
+\subsection*{구현 완료 범위와 다음 연결}
+\file{battery_sim/value_metrics.py}에 진단 열 매핑, $V$, 미사용 선택, 두 종류 교환, Current-only, regret 분해, 완화 상한을 구현하였다. \file{battery_sim/inventory_protocol.py}에는 전체 재고 예산과 DFF 첫 실험안을 구현하였다. 기존 검증을 포함한 32개 확인이 통과하였다. 재현 명령은 \file{uv run python -m battery_sim.value_contract_smoke}이며 결과는 \file{results/value_contract_v3/}에 저장한다. 현재 규약은 \file{configs/evaluation_contract_v3.json}에 있다. 예산 $N=86$은 확정되었고 대규모 oracle 절차는 미확정이다. DFF 코어는 아직 GP 적응 진단 실행에 연결하지 않았다.
+
+기존 GP는 RUL 하나를 예측하고 특징 추출은 최소 3개 RPT를 전제로 한다. 새 기본 진단은 RPT 2개이며 $V$ 평가는 실제 미래 용량을 사용한다. 기존 코드를 설정값만 바꿔 새 규약 실행이라고 부르지 않는다. E4에서는 두 RPT 용량 특징을 준비했고, 우선 RUL 예측으로 배정한 뒤 실제 미래 용량으로 평가하도록 설계했다. 예측 $V$ 기반 교환에는 별도 용량 궤적 모델이 필요하다. 이전 95점·30\% 목표는 구실험의 탐색 목표로 보관하며 새 기준의 목표 수치는 별도로 정해야 한다.
+
+\input{experiment_v3_design.tex}
+\input{environment_setup.tex}
+
+\clearpage
+\section{V1/V2 탐색 당시의 연구 질문과 구지표}
+\textbf{이 절부터 E2-D까지는 이전 시도의 이유와 결과를 보존한 기록이다. 현재의 팩 성능·진단량·기준선은 앞의 E3 규약을 따른다.}
+D0·E1은 2026년 11월 4일, E1-D·E2는 11월 5일의 시도이다. E2-A부터 E2-D는 같은 V2 실행의 요소별 기록이며 독립 데이터 실험이 아니다. 현재 규약을 먼저 읽고, 시도 결과와 마지막의 재현 절차·다음 작업을 확인한다.
+
+\subsection*{무엇을 해결하려는가?}
+일부 사용한 셀을 재사용 팩으로 묶을 때, 적은 검사로 좋은 구성을 확정하는 것이 목표이다. 초기 검사로 수명과 불확실성을 예측하고, 추가 정보를 얻을 셀과 중단 시점을 선택한다.
+
+처음 제기한 가설은 \textbf{불확실성이 큰 셀과, 추가 정보가 팩 성능을 개선할 가치가 큰 셀은 다를 수 있다}는 것이다. 팩의 최약 셀 역할, 팩 경계의 순위, 미사용 후보의 편입 여부가 바뀌는 정보를 찾으려 한다.
+
+\begin{tabular}{p{.23\linewidth}p{.67\linewidth}}
+\toprule
+용어 & 이 연구에서의 의미 \\
+\midrule
+셀 ID & 물리적 셀의 고정 식별자. 예측 수명 순위와 구분한다. \\
+EOL, $T_i$ & 정밀 측정 용량이 처음 1.44 Ah 미만이 된 관측 사이클. 이후 회복해도 최초 시점 유지. \\
+RUL, $L_i$ & 현재 검사 종료 사이클 $c_i$에서 남은 수명: $\max(T_i-c_i,0)$. 단위는 사이클. \\
+시나리오 & 전체 후보 셀의 가능한 RUL 튜플 $\mathbf L^{(s)}$. 계산상 샘플 수와 물리적 검사 수는 다르다. \\
+검사 비용 & 추가 충방전 사이클 수를 셀별로 합산한 cell-cycles. 병렬 장비의 경과 시간은 아니다. \\
+oracle & 실제 수명을 모두 알고 같은 후보 수·팩 크기 제약에서 최적으로 구성하는 평가용 상한. \\
+\bottomrule
+\end{tabular}
+
+\subsection*{고정한 단순화와 성능점수}
+팩 $p$의 셀 집합을 $P_p(A)$라 하면,
+\[
+T_p=\min_{i\in P_p(A)}L_i,\qquad
+U(A,\mathbf L)=\sum_p T_p,\qquad
+\mathrm{Score}=100\frac{U(A,\mathbf L)}{U^*(\mathbf L)}.
+\]
+이는 한 셀이 EOL에 도달하면 팩 사용을 종료하는 모델이다. 팩 내부 상호작용, 사용 중 셀 교체, 달력 열화는 포함하지 않는다. 동일 크기·비슷한 사이클당 공급 에너지의 팩을 독립적으로 쓴다는 조건에서 $U$를 누적 사용 가능량(pack-cycles)의 지표로 사용한다.
+
+\begin{itemize}
+\item 실제 RUL을 알고 모든 셀을 같은 크기의 팩으로 사용할 때 인접 수명순 구성이 합계를 최대화한다. 일부 셀을 미사용으로 둘 수 있다면 가장 수명이 긴 가용 셀들을 선택한 뒤 정렬한다.
+\item 불확실한 예측의 평균이나 중앙값 정렬은 기준 방법이며 기대 성능 최적성을 보장하지 않는다. 고정된 구성 하나를 여러 시나리오에서 평가해야 한다.
+\item 점수는 검사 종료 상태의 oracle을 분모로 한다. 검사에 소비한 수명이 가려지지 않도록 \textbf{실제 $U$와 검사 비용도 함께 보고}한다.
+\item 현재 사용한 95점·검사량 30\% 절감은 연구 목표 예시이다. 달성 결과나 외부에서 검증된 기준은 아니다.
+\end{itemize}
+
+\clearpage
+\section{D0: 데이터 확인과 실행 범위}
+\state{확인 완료. 원본을 수정하지 않고 읽는 기반으로 사용한다.}
+
+\textbf{실행 데이터:} Deep Sorting의 second-life 기록을 가공한 86셀이다. 본문의 사이클 번호는 이 second-life 기록 안의 번호이다. 로컬 데이터 위치는 \file{~/ssbt_battery_diagnosis/data/processed/}이며, 팀원 환경에서는 설정의 \file{data_dir}을 바꾼다. 현재 실행 코드는 이 문서와 같은 프로젝트의 \file{simulation/battery_sim/}이다.
+
+\begin{tabular}{p{.29\linewidth}p{.18\linewidth}p{.43\linewidth}}
+\toprule
+파일 & 크기 & 의미 \\
+\midrule
+\file{cap_raw.parquet} & 40,496행, 6열 & 셀·사이클별 용량과 측정 종류의 long-format 표 \\
+\file{C_full.npz} & 용량 86$\times$390 & RPT만 모은 용량 행렬. 셀 ID와 실제 사이클 축 포함 \\
+\file{T_eol.npy} & 86개 & 셀별 EOL 사이클 정답 \\
+\file{censor_mask.npy} & 86개 bool & EOL 미도달 여부. 현재 전부 False \\
+\file{meta.csv} & 86행, 6열 & 셀 ID·프로토콜·기록 길이·EOL·절단 여부 요약 \\
+\bottomrule
+\end{tabular}
+
+\begin{itemize}
+\item \file{cap_raw} 열: \file{cell_id}, \file{cycle}, \file{cycle_type}, \file{cap_Ah}, \file{soh}, \file{protocol_id}. 일반 열화 32,327개, RPT 8,168개, invalid 1개가 있다.
+\item \file{C_full.npz} 키: \file{C_full}, \file{cell_ids}, \file{cycles}, \file{source}. 행은 \file{cell_ids}, 열은 \file{cycles}로 매핑하며 \file{source=rpt}이다.
+\item 사이클 축은 $1,6,11,\ldots,1946$. 390열은 연속 390사이클이 아니다. 실제 측정 8,168개와 결측 25,372개로 구성된다. \textbf{NaN을 용량 0으로 해석하면 안 된다.}
+\item SOH 기준은 공통 기준 용량 2.4 Ah이며, $0.60\times2.4=1.44$ Ah를 EOL 기준으로 사용한다. 재사용 시작 용량의 60\%가 아니다. EOL은 보간값이 아닌 최초 하회 RPT 관측 시점이다.
+\item EOL 최소 171, 중앙값 301, 최대 1,226사이클. V1/V2에서 사용한 초기 101사이클까지는 86셀 모두 RPT가 완전하게 있다. 새 진단 규약의 상한은 40사이클이다.
+\item 원본 두 phase 폴더에는 각각 CSV 86개가 있다. 파일 번호는 88까지지만 61·62가 없으며, 파일명과 내부 \file{Battery_ID}는 다르다. 예: \file{1.csv}의 ID는 9. 셀 연결에는 내부 ID를 사용한다.
+\end{itemize}
+
+\textbf{구현상 결정:} V1은 후보 86개 중 80개로 8셀 팩 10개를 만들고 6개를 미사용 후보로 둔다. V2의 평가 43셀에서는 팩 5개와 미사용 후보 3개이다. 이는 나머지 셀을 처리하기 위한 실험 설정이다. 미사용 셀의 재고 가치·폐기 비용은 목적함수에 포함하지 않았으며, 최종 적용 사양의 합의로 간주하지 않는다.
+
+\textbf{아직 쓰지 않은 정보:} 원본 CSV에는 시간별 전압·전류·온도·에너지 등의 열도 있지만, 현재 예측은 용량 요약만 사용한다. \file{protocol_id}, \file{n_cycles}, \file{last_cycle}, 정답 EOL은 평가 셀의 입력 특징에 넣지 않는다.
+
+\clearpage
+\section{E1: 실제 86셀의 검사 선택 파일럿}
+\state{실행 완료. 검사 전략의 우위와 순이득은 미확인.}
+
+\textbf{시도 이유}\quad 팩 구성에 중요한 셀을 우선 검사하면 균등·무작위 검사보다 같은 비용에서 좋은 구성을 얻는지 확인하려 했다.
+
+\textbf{실행 조건}
+\begin{itemize}
+\item 후보 86셀, 8셀 팩 10개, 미사용 후보 6개. 초기 RPT 5개(1,6,11,16,21사이클)를 공개한다.
+\item 한 번의 추가 검사는 선택한 셀의 다음 RPT를 공개하며 5 cell-cycles를 소비한다. 초기 공통 비용 1,806은 추가 예산과 별도이다.
+\item 추가 예산: 0, 215, 430, 860, 1,290, 1,720 cell-cycles. 셀별 최대 관측은 101사이클까지 제한하였다.
+\item 최근 최대 8개 RPT로 Bayesian linear regression을 적합하고, 1.44 Ah 교차 시점에서 현재 사이클을 빼 RUL을 구한다. 다른 셀의 EOL로 학습하지 않았다.
+\item 용량 오차 0.01 Ah, 사전 평균 계수 $(2.0,-0.15)$, 사전 표준편차 $(0.3,0.3)$를 사용하였다. 사이클은 100으로 나누어 회귀한다. 평탄·상승 추세와 큰 예측은 2,000사이클 상한 등으로 처리하였다. 이 설정은 검증된 물리 모수가 아니다.
+\end{itemize}
+
+\textbf{비교 방법}\quad 균등, 무작위, RUL 불확실성 우선, 의사결정 가치 근사. 마지막 방법은 후보 최대 16개를 추린 뒤 다음 용량 관측 8가지를 가상 생성하고, 관측 후 예상 팩 수명의 변화를 계산한다. 정확한 EVOI가 아닌 제한된 후보·표본·선형모델에 기반한 근사이다. 예산을 끝까지 사용하는 비교로, 중단 규칙은 구현하지 않았다.
+
+\begin{center}
+\begin{tabular}{lrrr}
+\toprule
+방법 & 추가 비용 & 성능점수 & 실제 수명 합계 \\
+\midrule
+초기 용량 정렬 & 0 & 65.03 & 1,915.00 \\
+불확실성 우선 & 1,720 & 61.17 & 1,688.33 \\
+균등 검사 & 1,720 & 59.81 & 1,641.67 \\
+의사결정 가치 근사 & 1,720 & 58.76 & 1,621.67 \\
+무작위 검사 & 1,720 & 57.90 & 1,588.33 \\
+\bottomrule
+\end{tabular}
+\end{center}
+수명 합계 단위는 pack-cycles, 비용은 cell-cycles이다. 난수 시드 0,1,2의 평균이며 같은 셀을 반복한 것이다. 초기 선형모델 구성은 평균 58.12점이었다.
+
+\textbf{관찰과 판단}\quad 최종 수명 합계가 초기 용량 정렬보다 낮았다. 명목 80\% 구간의 포함률은 초기 약 40\%, 마지막 예산에서 약 26--31\%였다. 의사결정 가치 근사는 불확실성 우선보다 우수하지 않았다. 선택된 검사 중 약 23\%는 계산상 개선량이 0 이하인데도 예산을 소진하기 위해 실행되었다. \textbf{예측분포와 검사 중단을 별도로 개선할 필요}를 확인하였다.
+
+\textbf{추적 위치}\quad \file{configs/real86.json}, \file{battery_sim/real86.py}, 결과 폴더 \file{results/real86_pilot_v1/}. 성능 72행과 검사 이력 4,128건의 재계산 감사 기록이 있다.
+
+\clearpage
+\section{E1-D와 E2-A: 병목 진단 후 평가 틀 변경}
+\subsection*{E1-D: 관측을 늘리기만 하면 해결되는가?}
+\state{실행 완료. 선형모델의 구조적 한계와 설정의 영향을 후속 점검 대상으로 남긴다.}
+
+검사 선택 전략과 예측모델의 문제를 구분하기 위해 모든 셀에 같은 양의 관측을 제공하였다. 모든 셀을 21, 41, 61, 81, 101사이클까지 관측하고 기존 국소 선형모델을 평가했다.
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+관측 종료 & 추가 비용 & 점수 & RUL MAE \\
+\midrule
+21  & 0 & 58.12 & 211.50 \\
+41  & 1,720 & 59.81 & 276.49 \\
+61  & 3,440 & 58.15 & 349.47 \\
+81  & 5,160 & 58.99 & 390.35 \\
+101 & 6,880 & 45.84 & 371.01 \\
+\bottomrule
+\end{tabular}
+\end{center}
+MAE의 단위는 사이클이다.
+
+\textbf{판단}\quad 관측을 늘리는 것만으로 안정된 개선을 얻지 못했다. 원인을 비선형 열화 하나로 단정하지 않고, 최근 관측만 쓰는 창, 사전분포, 측정 오차와 외삽의 영향을 점검 대상으로 남긴다. 재현용 설정은 \file{configs/uniform_diagnostic_v1.json}이다. 최초 진단표는 V1 결과 폴더의 \file{diagnostic_uniform_horizons.csv}에 있다. 설정을 이용해 재실행한 \file{results/uniform_diagnostic_v1/}의 점수·MAE가 최초 표의 5개 시점과 일치함을 확인하고 \file{reproduction_check.json}에 남겼다.
+
+\subsection*{E2-A: 학습 모델을 비교할 수 있는 평가 설계로 변경}
+\state{구현·실행 완료. V2의 다른 비교에 공통으로 사용한다.}
+
+\textbf{변경 이유}\quad 다른 셀의 수명으로 학습할 때 후보 전체에서 학습·평가하면 미래 정보가 섞인다. 학습 모델의 효과를 구분하기 위해 셀을 분리하고 모든 방법을 같은 평가 집합에서 다시 계산하였다.
+\begin{itemize}
+\item 외부 2-fold와 분할 시드 11,29,47을 사용한다. 각 시드에서 86셀 모두 평가에 한 번씩 포함된다.
+\item 개발 43셀을 학습 32셀·구간 보정 11셀로 나누고, 별도의 43셀을 평가한다. 셀 단위로 중복되지 않는다.
+\item 학습 32셀 내부의 3-fold로 설정을 고른다. 평가 셀의 정답은 설정·모델 종류·구간 폭을 정하는 데 사용하지 않는다.
+\item 평가 43셀로 8셀 팩 5개와 미사용 후보 3개를 구성한다. 모든 평가 셀을 같은 양만큼 관측하여 예측과 구성을 비교한다.
+\end{itemize}
+
+\textbf{비교 시 주의}\quad V1의 86셀 후보군과 V2의 43셀 평가군 점수를 직접 빼서 개선량으로 계산하지 않는다. V2에서 다시 실행한 동일 조건의 기존 모델을 기준으로 한다. 같은 86셀의 반복 분할이며 독립적인 외부 데이터 검증이 아니다.
+
+\clearpage
+\section{E2-B: Ridge·GP를 이용한 수명 학습}
+\state{예측 오차 감소 확인. 팩 성능의 일관된 우위는 미확인.}
+
+\textbf{변경 내용}\quad 초기·현재 용량, 용량 감소, 전체·초기 3개·최근 3개 관측의 기울기, 기울기 변화, 선형 잔차, 마지막 용량 변화, 현재 사이클의 10개 특징으로 log RUL을 예측한다. 특징은 공개한 관측만으로 계산한다.
+
+Ridge는 alpha 0.1,1,10,100, GP는 고정 RBF 길이 척도와 잡음의 4개 조합을 개발 데이터에서 비교한다. 표준화는 학습 셀에서만 적합한다. 관측량별로 개발 측 내부 log-RUL RMSE가 작은 모델 종류를 선택한다. \textbf{아래의 새 모델은 이 선택 절차와 점예측 정렬의 조합}이며, 평가 점수가 높은 모델을 사후에 고른 것이 아니다.
+
+\begin{center}
+\begin{tabular}{rrrrrr}
+\toprule
+관측 종료 & 용량 정렬 & 기존 선형 & 새 모델 & 점수차 & 새 모델 MAE \\
+\midrule
+21  & 66.00 & 61.88 & 66.29 & $+4.41$ & 116.14 \\
+41  & 63.45 & 63.82 & 64.03 & $+0.21$ & 115.58 \\
+61  & 64.04 & 62.73 & 65.48 & $+2.75$ & 108.41 \\
+81  & 63.13 & 63.78 & 59.25 & $-4.53$ & 99.55 \\
+101 & 60.63 & 55.66 & 64.02 & $+8.37$ & 94.77 \\
+\bottomrule
+\end{tabular}
+\end{center}
+점수차는 같은 조건의 기존 선형모델 대비 차이이다. 3개 시드$\times$2-fold의 평균이며 독립적인 6개 데이터셋의 평균은 아니다.
+
+\textbf{확인한 내용}
+\begin{itemize}
+\item RUL MAE는 21사이클에서 211.20에서 116.14로, 101사이클에서 369.24에서 94.77로 감소하였다.
+\item 점수는 일부 조건에서 올랐지만 81사이클에서는 낮아졌다. 평균 오차가 작아도 팩의 최약 셀이나 경계 순위를 충분히 다루지 못할 가능성이 남는다.
+\item 21사이클의 용량 정렬은 66.00점으로 새 모델과의 차이가 약 0.29점이다. 용량 정렬 대비 안정된 우위는 확인하지 못했다.
+\end{itemize}
+
+\textbf{구현 차이로 남길 사항}\quad 학습 모델의 점예측은 예측 log RUL을 지수 변환한 중앙값이고, 기존 선형모델은 이전과 같은 RUL 샘플 평균이다. 모델 변경에는 점예측의 정의 차이도 포함된다. log RUL이 정규분포여도 RUL 자체가 정규분포인 것은 아니다. V2에도 RUL 2,000사이클 상한과 log 표준편차 0.03의 하한을 둔다. 이 수치와 꼬리 가정의 영향은 아직 분리 검증하지 않았다.
+
+\textbf{소비 수명과 비용}\quad 평가 43셀의 초기 공통 비용은 903 cell-cycles, 101사이클까지의 총비용은 4,343, 추가분은 3,440이다. 새 모델의 실제 수명 합계는 21사이클에서 917.50, 101사이클에서 630.83 pack-cycles였다. 점수 개선만으로 추가 검사의 순이득을 주장하지 않는다.
+
+\textbf{추적 위치}\quad \file{configs/model_comparison_v2.json}, \file{battery_sim/compare_models.py}, \file{results/model_comparison_v2/}. 입력·분할·설정·결과의 대응은 뒤의 재현 절차에 정리하였다.
+
+\clearpage
+\section{E2-C·E2-D: 불확실성과 구성 방법을 분리해 평가}
+\subsection*{E2-C: 80\% 예측구간 보정}
+\state{포함률 상승. 구간 폭 확대와 분포 모양의 미검증이 남는다.}
+
+학습에 쓰지 않은 11셀에서 log RUL의 표준화 잔차 절댓값을 계산한다.
+\[
+s_j=\frac{|\log L_j-\mu_j|}{\sigma_j},\qquad
+k=\lceil(11+1)\times0.8\rceil=10.
+\]
+10번째 잔차 점수로 80\% 구간 반경을 정한다. raw와 보정 후의 점예측은 바꾸지 않는다. 평가 라벨로 구간 폭을 조정하지 않는다.
+
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+모델 & 관측 & 포함률: 전 & 포함률: 후 & 폭: 전 & 폭: 후 \\
+\midrule
+GP & 21 & 53.9\% & 86.0\% & 159.2 & 618.7 \\
+GP & 101 & 62.0\% & 83.7\% & 165.9 & 424.1 \\
+Ridge & 21 & 80.2\% & 84.5\% & 295.0 & 431.9 \\
+Ridge & 101 & 80.6\% & 86.8\% & 252.6 & 435.6 \\
+\bottomrule
+\end{tabular}
+\end{center}
+구간 폭의 단위는 사이클이다. 80\% 구간에 대한 보정이며 꼬리나 셀 간 상관을 포함한 예측분포 전체의 정확성을 검증한 것은 아니다. GP는 공동 예측 공분산, Ridge는 독립 잔차를 가정하여 시나리오를 만든다.
+
+\subsection*{E2-D: 시나리오 기대값을 높이는 셀 교환}
+\state{비교 구현으로 보존. 최종 개선 방법으로의 채택은 보류.}
+
+보정된 256개 시나리오의 기대 수명 합계가 커지도록 팩 간·미사용 후보와의 교환을 최대 10회 수행하였다. 별도 2,048개 시나리오로 예측 기대값을 확인하고 실제 성능은 평가용 EOL로 판정하였다.
+
+\begin{center}
+\begin{tabular}{rrrr}
+\toprule
+관측 & 새 모델 정렬 & 교환 후 & 실제 점수차 \\
+\midrule
+21 & 66.29 & 63.91 & $-2.38$ \\
+41 & 64.03 & 63.34 & $-0.69$ \\
+61 & 65.48 & 63.10 & $-2.38$ \\
+81 & 59.25 & 58.58 & $-0.67$ \\
+101 & 64.02 & 60.92 & $-3.11$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+위 표는 개발 측에서 선택한 모델 조합의 결과이다. 최적화용 기대값의 증가가 실제 점수 증가로 이어지지 않았다. 분포 오류·표본 최적화에 대한 과적합·구성 기준의 영향을 후속 실험에서 구분해야 한다. 원인을 하나로 단정하지 않는다.
+
+\clearpage
+\section{현재 판단과 다음 작업}
+\textbf{팀 피드백 반영 후 우선 작업}\quad 현재 우선순위는 E4의 입력 수신·검증, 동일 조건 특징 비교, 새 $V$ 평가이다. 86셀 OOF 배정과 독립 평가의 범위를 구분한다. 이후 oracle 절차와 적응 진단을 연결한다. 아래 표와 진단 목록은 V2에서 확인한 문제와 당시 제안 순서를 보존한 것이며 E4의 우선순위를 대체하지 않는다.
+\subsection*{확인한 사실과 미해결 사항}
+\begin{tabular}{p{.43\linewidth}p{.47\linewidth}}
+\toprule
+확인한 사실 & 아직 말할 수 없는 것 \\
+\midrule
+관측을 제한한 리플레이와 점수 계산 실행 & 실물 팩에서도 같은 수명이 되는지 \\
+학습 모델의 RUL 오차 감소 & 팩 성능이 안정적으로 개선되는지 \\
+80\% 구간의 포함률 상승 & 분포 전체·꼬리·상관이 정확한지 \\
+시나리오 교환의 기대값 최적화 & 실제 수명 합계가 개선되는지 \\
+V1에서 검사 전략 4종 비교 & 새 모델의 적응 검사·중단이 유효한지 \\
+\bottomrule
+\end{tabular}
+
+\subsection*{V2 당시의 후속 진단 제안}
+\begin{enumerate}
+\item \textbf{81사이클 조건의 순위 오류를 진단한다.} \file{predictions.csv}와 \file{metrics.csv}에서 잘못 판단한 최약 셀·팩 경계·미사용 후보를 확인한다. MAE와 함께 실제 수명 손실을 만든 셀과 순위 오류를 기록한다. 서술적 진단과 평가 라벨을 이용한 모델 재조정을 구분한다.
+\item \textbf{개발 측 선택 기준을 비교한다.} 현재는 log-RUL RMSE로 설정·모델을 선택한다. 개발 내부 검증에서 유효한 수의 팩을 만들고 수명 합계나 regret에 기반한 선택과 비교한다. 평가 셀에서 기준이나 임계값을 고르지 않는다. 먼저 모델 선택만 바꾸고 구성·검사는 고정한다.
+\item \textbf{필요하면 관측 정보를 추가한다.} 용량 특징의 한계를 검증한 뒤 이미 관측한 충방전의 전압--용량 곡선이나 시간 특징을 추가한다. 필요한 관측 시점과 비용을 먼저 정의하고 미래 기록을 섞지 않는다.
+\item \textbf{새 모델의 적응 검사와 중단을 별도 실험으로 다룬다.} 현재 검사 가치 함수는 선형 용량모델로 다음 용량 관측을 생성한다. RUL 모델 이름만 바꾸면 일관성이 깨진다. 다음 관측 생성·예측 갱신·소비 수명을 연결하는 설계가 필요하다. 중단 후보는 $\max_i[\widehat{\Delta U_i}-\lambda c_i]\le0$이며, 보정된 예측에서도 효과를 별도로 검증한다.
+\end{enumerate}
+
+\textbf{판단 기준}\quad 새 규약에서는 같은 평가 조건에서 Current-only보다 $V$가 커지는지, 총 regret와 진단·배정 손실이 각각 어떻게 바뀌는지를 평가한다. 동일한 목표 성능을 달성하지 못한 상태에서 검사 절감을 달성했다고 계산하지 않는다. 성공하지 못한 분기도 결과로 남긴다.
+
+\textbf{평가 한계}\quad 같은 86셀의 반복 분할이며 이전 탐색에서 전체 경향을 이미 확인했다. 미지의 외부 데이터 검증으로 다루지 않는다. 후속 모델 선택 절차를 고정하고 독립 데이터 또는 명시한 추가 평가로 재확인해야 한다.
+
+\clearpage
+\section{재현 절차와 산출물 대응}
+\textbf{현재 규약의 계산 확인}\quad \file{uv run python -m battery_sim.value_contract_smoke}로 새 Current-only 계산을 재현한다. 아래의 V1/V2 전체 실행 명령은 구지표 시도를 재현하기 위한 것이다. 새 규약의 GP·적응 검사 전체 실행 명령으로 간주하지 않는다.
+\subsection*{처음 준비할 사항}
+현재 실행 시작점은 \file{simulation/}이다. 별도 프로젝트인 \file{~/ssbt_battery_diagnosis/src/}의 단계별 스크립트와 구분한다. 팀 공유 시 \file{simulation/}의 소스·설정·\file{uv.lock}을 전달하고 가상환경이나 거대한 원자료를 소스에 포함하지 않는다.
+
+설정의 \file{data_dir}에 전처리 파일 5개가 있는 폴더를 지정한다. 입력 데이터를 바꾸면 EOL·셀 ID·결측 대응을 먼저 검증한다. 프로젝트의 \file{sources/}는 읽기 전용 참조이다.
+
+\begin{Verbatim}[fontsize=\small]
+uv sync --locked
+uv run python -m battery_sim.inspect_data
+uv run python -m battery_sim.real86
+uv run python -m battery_sim.audit_real86
+uv run python -m battery_sim.compare_models
+uv run python -m battery_sim.audit_comparison
+\end{Verbatim}
+
+균등 관측 진단은 다음 설정으로 재현한다.
+\begin{Verbatim}[fontsize=\small]
+uv run python -m battery_sim.real86 \
+  --config configs/uniform_diagnostic_v1.json
+\end{Verbatim}
+
+\subsection*{어떤 파일을 볼 것인가?}
+\begin{tabular}{p{.38\linewidth}p{.52\linewidth}}
+\toprule
+위치·파일 & 용도 \\
+\midrule
+\file{configs/real86.json} & E1의 조건, 예산, 후보 수, 선형모델 설정 \\
+\file{configs/model_comparison_v2.json} & E2의 분할, 후보 설정, 구간·시나리오 조건 \\
+\file{real86_start.ipynb} & E1 결과 확인·재실행 \\
+\file{model_comparison_v2.ipynb} & E2의 변경 전후·그림·분할·감사 확인 \\
+\file{results/real86_pilot_v1/} & E1 결과 일체 \\
+\file{results/model_comparison_v2/} & E2 결과 일체 \\
+\file{CHANGES_V2.txt} & 구현 차이와 실행 후 결론 \\
+\bottomrule
+\end{tabular}
+
+새 실험은 먼저 \file{run_name}을 바꾸고 별도 폴더에 결과를 저장한다. 초기 관측량을 바꾸는 비교는 추가 비용과 함께 초기 공통 비용도 포함한다. 감사 코드에는 현재 86셀, 32/11/43 분할, 8셀 팩 등을 전제로 한 확인이 있으므로 분할·후보 수·초기 시점을 바꿀 때 해당 감사 조건도 검토한다.
+
+\clearpage
+\section{결과 추적과 갱신 규칙}
+\subsection*{결과 파일의 의미}
+\begin{itemize}
+\item \file{manifest.json}: 실행 설정과 입력 파일 SHA-256. V2는 코드 해시와 실행 환경 버전도 저장한다.
+\item \file{metrics.csv}: 평가 집합·관측량·방법별 성능과 셀 배치. V1은 정책·시드·예산별이다.
+\item \file{inspection_trace.csv}: V1의 추가 검사 대상·공개 사이클·용량·비용의 시간순 기록.
+\item \file{summary.csv}: 평균과 반복 간 산포. 독립 표본의 신뢰구간으로 취급하지 않는다.
+\item \file{comparison_deltas.csv}: V2의 동일 조건 변경 전후 차이.
+\item \file{predictions.csv}: V2의 셀별 예측·구간·평가 전용 정답. 입력 특징으로 재사용하지 않는다.
+\item \file{splits.json}, \file{fitted_model_log.json}: 셀 역할, 개발 측 선택 설정, 구간 보정량.
+\item \file{audit.json}: 원본·코드·분할·점수·비용·오차 등의 재계산 확인.
+\end{itemize}
+
+\textbf{실행 시 확인 기록}\quad E1은 성능 72행과 검사 4,128건, V2는 성능 330행과 예측 5,160행을 재계산해 확인하였다. V2 검증 14개에는 미래 용량 변경이 공개된 특징을 바꾸지 않는지, 평가 셀 EOL을 바꾸어도 모델·구성이 유지되는지 등이 포함된다. 코드 변경 후에도 항상 정확하다는 증명은 아니므로 다음 실행에서 필요한 검증을 다시 수행한다.
+
+\subsection*{다음 시도는 이 항목으로 추가한다}
+\begin{tabular}{p{.21\linewidth}p{.69\linewidth}}
+\toprule
+기록 항목 & 반드시 남길 내용 \\
+\midrule
+ID·기준 시도 & 날짜, 담당, 어느 실행을 기준으로 비교하는가 \\
+질문·근거 & 관찰한 사실과 시험할 가설. 사실과 추측을 구분한다 \\
+변경점 & 바꾼 모델·특징·목적·정책·설정. 여러 변경이면 효과 분리 방법 \\
+고정 조건 & 데이터 버전, 셀 분할, 후보, 팩 수, EOL, 관측, 비용 정의 \\
+재현 정보 & 실행 명령, 설정, 난수, 입력·코드 해시, 출력 위치 \\
+결과 & 현재 규약의 $V$·총 regret·분해·진단량과 필요한 예측·구간·순위 지표 \\
+판단 & 확인한 것, 악화·무변화, 미확인, 채택·보류·비교용 보존 \\
+다음 작업 & 다음에 바꿀 한 요소, 판정 기준, 남은 확인 사항 \\
+\bottomrule
+\end{tabular}
+
+앞으로는 연구상 결정이 바뀌거나 시도를 실행하거나 근거를 확인했을 때 관련 내용을 갱신한다. 긴 코드는 소스로 연결하고 본문에는 방법·조건·결과·판단을 남긴다. 담당자가 아직 정해지지 않았으므로 이 자료에서 임의로 배정하지 않았다.
+\clearpage
+\section{E5: 2026년 11월 11일 원격 입력 상태 정리}
+\state{최신 origin/main 기준. 입력 파일을 추가하거나 실험을 실행하지 않고 스키마·ID만 읽어 확인했다.}
+
+최신 \file{origin/main}에는 Stage 2 입력 \file{data/processed/features_v2.npz}, 선정 결과 \file{results/stage2_select/final_selection.json}, 공유 fold가 있다. 특징 파일은 \texttt{X} (86\,$\times$\,7\,$\times$\,148), \texttt{cell\_ids}, \texttt{budgets}, \texttt{feature\_names}, \texttt{base\_names}를 제공한다. 셀 ID는 \file{C\_full.npz}와 일치한다. 선정 JSON은 \texttt{screened} 20개와 최종 \texttt{features} 6개를 구분한다. V3 설계는 screened 20개를 비교 대상으로 삼으므로, V3 설정의 진단량 키를 \texttt{budgets}에 연결했다.
+
+이 확인은 사전 스키마 점검일 뿐 preflight나 학습·팩 비교 실행이 아니다. 기존 V3 readiness 스냅샷의 fold 해시는 로컬 임시 fold를 가리키며 최신 공유 fold와 다르므로 새 결과로 공유하지 않는다. 로컬 임시 fold 두 벌, 셀별 배정, 입력 데이터, 구버전 PDF는 이번 브랜치에 포함하지 않는다. 다음 단계는 새 fold와 실제 입력에 대한 preflight, 선정 범위·관측 공개 근거 검토, 그리고 누락된 학습 비교 실행기 구현이다.
+
+\end{document}

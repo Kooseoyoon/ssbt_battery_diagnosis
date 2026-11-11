@@ -1,0 +1,50 @@
+폐배터리 연구 · VS Code / Codex 시작 안내
+2026-11-05 기준 안내; 원격 입력 상태는 2026-11-11 갱신
+
+이후 작업 위치
+  저장소를 복제한 폴더 (이 안내의 경로는 모두 저장소 기준)
+  VS Code에서 battery-research.code-workspace를 열 것.
+  코드 기준은 simulation/battery_sim이며 이전 ChatGPT 폴더 사본과 동시 수정하지 말 것.
+
+현재 완료
+  86셀 V 평가, 진단 비용, 미사용 배정, 교환 후보, DFF 계산 코어
+  V3 특징 비교 설계, 두 RPT 용량 특징, 입력 점검
+  실제 용량 대조군 32개 조건, 검증 35개 통과
+  Stage2 학습 비교·적응 진단 전체 실행은 아직 없음
+
+중요 파일
+  AGENTS.md                              Codex가 매 작업에서 읽을 기준
+  simulation/configs/experiment_plan_v3.json  V3 설계·입력 경로
+  simulation/configs/evaluation_contract_v3.json  V·비용·배정 규약
+  simulation/battery_sim/experiment_v3.py  입력 점검·용량 대조군
+  simulation/reference_results/v3_initial_controls/  이관 전 기준 결과
+  docs/simulation_handoff/연구진행_인계자료.pdf  연구 이유·변경·해석
+  data/processed/folds.csv                최신 origin/main의 공유 fold (로컬 임시본 사용 금지)
+
+실행
+  VS Code F5: V3. 새 실험 입력·준비 상태 확인
+  VS Code F5: V3. 실제 용량 기준선 7개 예산 실행
+  VS Code 작업: V3 전체 검증
+  저장소 루트에서 실행: uv run --directory simulation python -m battery_sim.experiment_v3 --stage preflight
+  검증: uv run --directory simulation python -m unittest discover -s tests -q
+  기존 Stage2용 conda는 그대로 보존되어 있다. V3 환경에는 Stage2 전체 의존성을 설치하지 않았다.
+
+최신 원격 입력 상태 (2026-11-11)
+  최신 origin/main에는 features_v2.npz, final_selection.json, 공유 folds.csv가 있다.
+  특징 배열 키: X (86×7×148), cell_ids, budgets, feature_names, base_names.
+  선정 JSON: screened 20개, features 6개. X의 셀 ID는 C_full.npz와 일치한다.
+  V3 설정은 진단량 키를 budgets로 매핑했다. preflight와 선정 근거·관측 공개 범위 검토는 아직 필요하다.
+  Stage2 학습 비교 실행기, GP+DFF 적응 진단, 정확한 regret은 아직 구현·실행되지 않았다.
+  이전 로컬 임시 fold와 readiness 스냅샷은 새 공유 fold와 다르므로 기준 결과로 사용하지 않는다.
+
+Codex에서 시작할 첫 요청 예시
+  "AGENTS.md와 simulation/START_HERE.txt, V3 설정과 인계자료를 먼저 읽고 현재 구현을 확인해.
+   최신 공유 fold와 실제 Stage2 입력의 스키마·선정 범위·공개 관측 근거를 확인하고,
+   V3 preflight를 실행해. 아직 학습 비교 실행기는 미구현이므로 결과를 만들었다고 주장하지 말고,
+   셀 단위 분할 및 학습 내부 전처리·튜닝 원칙을 지키는 실행기를 설계해."
+
+Codex 화면
+  왼쪽 Codex 아이콘에서 연다. Copilot Chat과 구분한다.
+  Sign in with ChatGPT가 나오면 본인 계정으로 로그인한다. 비밀번호를 코드나 문서에 적지 않는다.
+  현재 설치·초기 안내가 완료되어 로그인된 입력 화면을 확인했다. 실행 위치는 Local이다.
+  F5 입력 점검이 새 Python으로 실행되는 것도 확인했다. 위 요청으로 시작하면 된다.

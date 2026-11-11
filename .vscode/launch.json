@@ -1,0 +1,67 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "V3. 새 실험 입력·준비 상태 확인",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.experiment_v3",
+      "args": [
+        "--stage",
+        "preflight"
+      ],
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "V3. 실제 용량 기준선 7개 예산 실행",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.experiment_v3",
+      "args": [
+        "--stage",
+        "controls"
+      ],
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "V2. 셀 분리 학습·보정·팩 구성 비교",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.compare_models",
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "0. 실제 86셀 진단 시뮬레이션",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.real86",
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "1. 합성 데이터로 시뮬레이션 시작",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.demo",
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "2. 실제 데이터 파일 구조 확인",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "battery_sim.inspect_data",
+      "cwd": "${workspaceFolder}/simulation",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

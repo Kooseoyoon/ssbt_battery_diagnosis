@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-05",
+  "canonical_repository": ".",
+  "canonical_simulation": "simulation",
+  "source_snapshot": "prior local ChatGPT project mirror (path omitted)",
+  "source_preserved": true,
+  "environment": "simulation/.venv",
+  "environment_lock": "simulation/uv.lock",
+  "shared_folds": "data/processed/folds.csv",
+  "folds_status": "provisional_seed42_until_official_team_file",
+  "features_status": "not_received",
+  "learned_runner_status": "not_implemented",
+  "git_before_setup": "clean",
+  "verification_status": "passed",
+  "python_version": "3.12.13",
+  "unit_tests": 35,
+  "real_capacity_control_rows": 32,
+  "git_commit_created": false,
+  "editor_configuration": "Repository-managed VS Code workspace, settings, launch configurations, and tasks."
+}

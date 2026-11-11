@@ -1,0 +1,45 @@
+{
+  "data_dir": "../data/processed",
+  "run_name": "real86_pilot_v1",
+  "pack_size": 8,
+  "initial_observations": 5,
+  "maximum_observations": 21,
+  "additional_budgets_cell_cycles": [
+    0,
+    215,
+    430,
+    860,
+    1290,
+    1720
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "policies": [
+    "uniform",
+    "random",
+    "uncertainty",
+    "decision_value"
+  ],
+  "eol_capacity_Ah": 1.44,
+  "model": {
+    "window_observations": 8,
+    "noise_Ah": 0.01,
+    "prior_mean": [
+      2.0,
+      -0.15
+    ],
+    "prior_sd": [
+      0.3,
+      0.3
+    ],
+    "maximum_RUL_cycles": 2000.0,
+    "minimum_decay_Ah_per_100_cycles": 0.005
+  },
+  "posterior_samples": 256,
+  "decision_candidate_limit": 16,
+  "decision_fantasies": 8,
+  "decision_evaluation_samples": 64
+}

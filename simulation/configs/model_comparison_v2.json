@@ -1,0 +1,64 @@
+{
+  "data_dir": "../data/processed",
+  "run_name": "model_comparison_v2",
+  "split_seeds": [
+    11,
+    29,
+    47
+  ],
+  "outer_folds": 2,
+  "calibration_cells": 11,
+  "inner_folds": 3,
+  "observation_counts": [
+    5,
+    9,
+    13,
+    17,
+    21
+  ],
+  "pack_size": 8,
+  "target_coverage": 0.8,
+  "ridge_alphas": [
+    0.1,
+    1.0,
+    10.0,
+    100.0
+  ],
+  "gp_candidates": [
+    {
+      "length_scale": 1.0,
+      "noise_level": 0.05
+    },
+    {
+      "length_scale": 3.0,
+      "noise_level": 0.05
+    },
+    {
+      "length_scale": 3.0,
+      "noise_level": 0.2
+    },
+    {
+      "length_scale": 10.0,
+      "noise_level": 0.2
+    }
+  ],
+  "minimum_log_sd": 0.03,
+  "maximum_RUL_cycles": 2000.0,
+  "optimization_scenarios": 256,
+  "validation_scenarios": 2048,
+  "maximum_swaps": 10,
+  "linear_baseline": {
+    "window_observations": 8,
+    "noise_Ah": 0.01,
+    "prior_mean": [
+      2.0,
+      -0.15
+    ],
+    "prior_sd": [
+      0.3,
+      0.3
+    ],
+    "maximum_RUL_cycles": 2000.0,
+    "minimum_decay_Ah_per_100_cycles": 0.005
+  }
+}

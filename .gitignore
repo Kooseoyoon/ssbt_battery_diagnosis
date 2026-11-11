@@ -29,3 +29,10 @@ data/processed/external_check/
 !data/processed/C_full_excl.npz
 !data/processed/C_full_excl_log.csv
 !data/processed/T_eol_excl.npy
+
+# Ignore generated handoff document build files
+docs/simulation_handoff/*.aux
+docs/simulation_handoff/*.log
+docs/simulation_handoff/*.out
+docs/simulation_handoff/main.pdf
+docs/simulation_handoff/대화_문답기록.pdf

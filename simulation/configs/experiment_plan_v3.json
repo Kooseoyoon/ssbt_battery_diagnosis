@@ -1,0 +1,164 @@
+{
+  "experiment": "E4_stage2_features_to_pack_value",
+  "status": "inputs_present_schema_mapped_preflight_and_learned_runner_pending",
+  "evaluation_contract": "configs/evaluation_contract_v3.json",
+  "data_dir": "../data/processed",
+  "features_path": "../data/processed/features_v2.npz",
+  "selection_path": "../results/stage2_select/final_selection.json",
+  "folds_path": "../data/processed/folds.csv",
+  "result_dir": "results/experiment_design_v3",
+  "N": 86,
+  "diagnostic_grid_per_cell": [
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40
+  ],
+  "budget_grid": [
+    860,
+    1290,
+    1720,
+    2150,
+    2580,
+    3010,
+    3440
+  ],
+  "pack_sizes": [
+    4,
+    8,
+    12,
+    16
+  ],
+  "primary_question": "At n=10, does Stage2 improve actual pack V over both Current-only and capacity-feature prediction?",
+  "methods": {
+    "current_only": "one baseline at all n_i=10; column 1 descending; cost 860; no extra diagnosis",
+    "capacity_features_v3": "V2 ten capacity features adapted explicitly to two RPT inputs",
+    "stage2_screened20": "same estimator search and packing as capacity_features_v3; only input features differ",
+    "capacity_updated": "auxiliary same-budget control; use latest revealed capacity at each uniform budget"
+  },
+  "rul_target": "T_eol - (n_i + 1); deployment starts at C_full column n_i/5, cycle n_i+1",
+  "rul_point": "exp(predicted log RUL), median; common definition for both learned methods",
+  "assembly_primary": "descending predicted RUL, consecutive packs, bottom remainder unused",
+  "assembly_secondary": "scenario-based swaps only after primary feature comparison; distinguish RUL surrogate from predicted V",
+  "folds": {
+    "outer": "shared physical-cell 5-fold",
+    "inner_folds": 3,
+    "selection_seeds": [
+      11,
+      29,
+      47
+    ],
+    "paired_methods": true,
+    "preprocessing": "imputation, scaling, supervised feature selection fit on training only",
+    "full_86_OOF_pack_value": "exploratory cross-fitted inventory result; not independent held-out pack generalization",
+    "heldout_fold_pack_value": "supplementary 17-18-cell inventory only; different N from main 86-cell experiment"
+  },
+  "models": {
+    "families": [
+      "ridge_log",
+      "gp_log"
+    ],
+    "selection_metric": "inner validation log_RUL_RMSE",
+    "ridge_alphas": [
+      0.1,
+      1.0,
+      10.0,
+      100.0
+    ],
+    "gp_candidates": [
+      {
+        "length_scale": 1.0,
+        "noise_level": 0.05
+      },
+      {
+        "length_scale": 3.0,
+        "noise_level": 0.05
+      },
+      {
+        "length_scale": 3.0,
+        "noise_level": 0.2
+      },
+      {
+        "length_scale": 10.0,
+        "noise_level": 0.2
+      }
+    ],
+    "minimum_log_sd": 0.03,
+    "maximum_RUL_cycles": 2000.0,
+    "uncertainty_calibration": "defer adaptive policy until training-only calibration design is implemented"
+  },
+  "feature_adapter_proposed_keys": {
+    "values": "X",
+    "cell_ids": "cell_ids",
+    "diagnostic_cycles": "budgets",
+    "names": "feature_names",
+    "selection_field": "screened"
+  },
+  "feature_validation": {
+    "expected_shape": [
+      86,
+      7,
+      148
+    ],
+    "expected_screened_count": 20,
+    "axis_order": "cell,diagnostic_cycles,feature",
+    "identity": "align by explicit cell ID, never row position alone",
+    "provenance_required_before_independent_claim": [
+      "each feature uses only observations revealed at n_i",
+      "screened20 selection did not use evaluation-cell targets; otherwise rerun inside outer training folds"
+    ],
+    "schema_status": "proposed adapter; actual keys and selection structure must be inspected when files arrive"
+  },
+  "oracle": {
+    "status": "global optimization procedure unresolved",
+    "report_now": [
+      "V",
+      "V_delta_vs_current_only",
+      "diagnostic_cost",
+      "RUL_MAE_when_predictions_available"
+    ],
+    "report_later": [
+      "R_total",
+      "R_diag",
+      "R_assign"
+    ],
+    "approximation_rule": "label feasible search value as lower bound, regrouping relaxation as upper bound; never substitute either for exact oracle silently"
+  },
+  "adaptive_followup": {
+    "policies": [
+      "uniform",
+      "random",
+      "RUL_uncertainty",
+      "companion_DFF"
+    ],
+    "round_size": 9,
+    "cap_cycles": 40,
+    "eligible_inventory": "all 86, including currently unused",
+    "DFF_reference": "assignment computed from policy-visible predictions, not true-future oracle",
+    "comparison": "same fitted predictor, fold, scenarios, assembly and budget; vary acquisition only",
+    "objective": "evaluate actual V after diagnosis; DFF is acquisition heuristic, not a reward",
+    "stop_rule": "evaluate stopping only after fixed-budget curves, no automatic early-stop claim"
+  },
+  "status_at_design": "designed_controls_runnable_learned_comparison_pending_inputs",
+  "feature_adapter_observed": {
+    "keys": [
+      "X",
+      "cell_ids",
+      "budgets",
+      "feature_names",
+      "base_names"
+    ],
+    "values_shape": [
+      86,
+      7,
+      148
+    ],
+    "selection_screened_count": 20,
+    "selection_final_feature_count": 6,
+    "cell_ids_match_C_full": true,
+    "preflight_run": false
+  }
+}

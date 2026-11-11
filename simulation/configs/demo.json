@@ -1,0 +1,6 @@
+{
+  "seed": 42,
+  "n_cells": 80,
+  "pack_size": 8,
+  "n_scenarios": 512
+}

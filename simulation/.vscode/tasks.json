@@ -1,0 +1,131 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "V3 입력 준비 확인",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.experiment_v3",
+        "--stage",
+        "preflight"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "V3 실제 용량 기준선 실행",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.experiment_v3",
+        "--stage",
+        "controls"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "V2 모델·보정·팩 구성 비교 실행",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.compare_models"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "실제 86셀 진단 시뮬레이션",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.real86"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "합성 데이터 시뮬레이션",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.demo"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "실제 데이터 파일 구조 확인",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "run",
+        "python",
+        "run",
+        "python",
+        "-m",
+        "battery_sim.inspect_data"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

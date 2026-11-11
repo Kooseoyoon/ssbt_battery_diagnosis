@@ -1,0 +1,72 @@
+{
+  "status": "full_inventory_metric_and_budget_ready_oracle_pending",
+  "data_dir": "../data/processed",
+  "metric": "V_integrated_minimum_capacity",
+  "units": "Ah*cycles",
+  "RPT_interval_cycles": 5,
+  "eol_capacity_Ah": 1.44,
+  "diagnosis_initial_cycles": 10,
+  "diagnosis_increment_cycles": 5,
+  "diagnosis_maximum_cycles_per_cell": 40,
+  "total_budget_per_N_grid": [
+    10,
+    15,
+    20,
+    25,
+    30,
+    35,
+    40
+  ],
+  "N_basis": "all_inventory_including_unused",
+  "future_first_column": "n_i / 5 (zero based)",
+  "observed_columns": "0 <= j < n_i / 5",
+  "current_only_observation_column": 1,
+  "current_only_sort": "descending_capacity_then_consecutive_packs",
+  "current_only_diagnostic_cycles_all_cells": 10,
+  "pack_sizes": [
+    4,
+    8,
+    12,
+    16
+  ],
+  "remainder_rule": "assignment_selects_unused_from_full_inventory",
+  "V_O": "max_V_over_full_86_inventory_assignments_including_unused_with_all_n_i_zero",
+  "V_O_n": "max_V_over_full_86_inventory_assignments_including_unused_with_same_method_n_vector",
+  "R_total": "(V_O - V_method) / V_O",
+  "R_diag": "(V_O - V_O_n) / V_O",
+  "R_assign": "(V_O_n - V_method) / V_O",
+  "oracle_computation": null,
+  "folds_path": "../data/processed/folds.csv",
+  "folds_scope": "shared_cell_level_5_fold_for_feature_and_prediction_stages; pack_inventory_evaluation_needs_separate_design",
+  "N_inventory": 86,
+  "total_budget_grid": [
+    860,
+    1290,
+    1720,
+    2150,
+    2580,
+    3010,
+    3440
+  ],
+  "round_size": 9,
+  "nominal_round_sizes_per_checkpoint": [
+    9,
+    9,
+    9,
+    9,
+    9,
+    9,
+    9,
+    9,
+    9,
+    5
+  ],
+  "round_cap_exception": "shrink batch if fewer than nine cells remain eligible; exact checkpoint and per-cell cap take precedence",
+  "unused_inventory_value": 0,
+  "unused_disposal_cost": 0,
+  "search_moves": [
+    "pack_to_pack",
+    "pack_to_unused"
+  ],
+  "DFF": "experimental companion replacement fraction; both used: 1-intersection/(pack_size-1); one unused:1; both unused:0"
+}
