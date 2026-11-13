@@ -1,0 +1,34 @@
+{
+  "experiment": "C_full_only_physics_capacity_n10_8S_v1",
+  "data_dir": "../data/processed",
+  "folds_path": "../data/processed/folds.csv",
+  "result_dir": "results/physics_capacity_n10_8S_v1",
+  "diagnosis_cycles": 10,
+  "pack_size": 8,
+  "eol_capacity_Ah": 1.44,
+  "maximum_predicted_rul_cycles": 2000,
+  "inner_folds": 3,
+  "inner_seed": 11,
+  "inner_selection_metric": "log_RUL_RMSE_from_predicted_capacity_curve",
+  "trajectory_landmarks_per_cell": 12,
+  "recovery_increment_quantile": 0.95,
+  "physics_capacity_scale_Ah": 0.02,
+  "smoothness_weight": 0.05,
+  "gp_length_scales": [
+    0.25,
+    0.75,
+    2.0
+  ],
+  "gp_noise_level": 0.05,
+  "nn_hidden_units": 16,
+  "nn_epochs": 250,
+  "nn_learning_rate": 0.01,
+  "nn_weight_decays": [
+    0.0,
+    0.001
+  ],
+  "physics_weights": [
+    0.1,
+    1.0
+  ]
+}

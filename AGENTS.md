@@ -24,15 +24,15 @@
 - 팩 크기 4,8,12,16; 미사용은 배정 변수이며 팩↔미사용 교환을 허용한다.
 - Current-only는 전 셀 n=10, 사이클6 용량 내림차순, 하위 나머지 셀 미사용.
 - `capacity_updated`는 각 예산의 최신 공개 용량 정렬로, Current-only와 별도다.
-- 현재 기준 fold는 최신 `origin/main`의 `data/processed/folds.csv`다. 로컬 임시 복사본은 혼동하지 말고 사용하지 않는다. 셀의 모든 시점은 같은 fold다.
+- 공유 fold는 `data/processed/folds.csv`; 현재 임시본, 공식본 우선. 셀의 모든 시점은 같은 fold다.
 - 결측 처리·표준화·특징 선정·튜닝은 학습 셀에서만 수행한다.
 - 86셀 OOF 팩 결과를 독립 86셀 재고의 일반화 평가로 주장하지 않는다.
 - 정확한 oracle 절차 미정. 근사 탐색값·완화 상한을 정확한 oracle로 표시하지 않는다.
 
 ## 현재 미완료와 다음 작업
-- 최신 `origin/main`에는 `data/processed/features_v2.npz`와 `results/stage2_select/final_selection.json`이 있다. 아직 V3 preflight와 학습 비교 실행은 수행하지 않았다.
-- 확인된 특징 배열은 `X`(86×7×148), `cell_ids`, `budgets`, `feature_names`, `base_names`다. 선정 JSON의 `screened`는 20개이고 `features`는 6개이므로, V3 비교는 설계한 screened20과 실제 입력을 명시적으로 맞춘다.
-- 입력 셀 ID는 `C_full.npz`의 ID와 일치한다. V3 설정의 진단량 키는 `budgets`로 연결한다. 공개 범위와 선정 근거는 preflight/분석에서 다시 검토한다.
+- `features_v2.npz`와 `results/stage2_select/final_selection.json`은 아직 미수신이다.
+- 특징 배열 키는 제안 형식이다. 실제 파일 확인 없이 축·셀 ID·선정 목록을 추정하지 않는다.
+- C_full만 쓰는 n=10·8직렬 OOF 비교에 단조성·매끄러움 제약 NN과 제곱근+선형/포화 지수+선형 ODE 잔차 PINN을 구현·실행했다. PINN 결과는 독립 검증이 아니며 Current-only 대비 V 향상도 확인되지 않았다.
 - Stage2 학습 비교 실행기, GP+DFF 적응 진단, 정확한 regret은 미구현/미실행이다.
 - 용량 특징 모델과 Stage2 모델의 같은 fold·모델 후보·튜닝·정렬 배정 비교를 먼저 완성한다.
 - DFF는 실험용 동료 교체 비율이지 보상이나 진단 가치의 보장이 아니다.

@@ -14,7 +14,7 @@
 \newcommand{\state}[1]{\textbf{상태: #1}}
 \title{\textbf{폐배터리 적응형 진단 연구}\\[.4em]\large 연구 진행 기록 및 후속 실험 인계자료}
 \author{}
-\date{2026년 11월 5일 기준}
+\date{2026년 11월 13일 기준}
 \begin{document}
 \maketitle
 \vspace{-1em}
@@ -28,7 +28,9 @@
 \item \textbf{V1:} 학습 없는 국소 선형 수명모델로 검사 선택 방법 4개를 비교하였다. 95점 목표에 도달하지 못했고, 추가 검사의 순이득을 확인하지 못했다.
 \item \textbf{V2:} 학습·보정·평가 셀을 분리하고 Ridge·GP, 예측구간 보정, 시나리오 기반 팩 교환을 비교하였다. RUL 오차는 감소했으나 팩 점수는 일부 조건에서 악화되었다.
 \item \textbf{E4:} Stage 2 추가 특징과 용량 특징의 동일 조건 비교를 설계하고, 실제 용량 대조군 32개 조건 및 입력 점검을 실행했다. 특징 파일 미수신으로 학습 비교는 아직 미실행이다.
-\item \textbf{현재 판단:} 새 $V$ 평가 코어와 Current-only 계산을 확인했다. 새 규약의 GP·적응 검사 전체 재실험과 최종 방법 선정은 아직 진행하지 않았다.
+\item \textbf{E5:} C\_full 용량 궤적 비교에 단조성·매끄러움 제약 NN을 추가했다. 이는 ODE 잔차 PINN이 아니며 예측 V 이득을 보이지 않았다.
+\item \textbf{E6:} 제곱근+선형과 포화 지수+선형 ODE 잔차 PINN을 세 잔차 가중치로 비교했다. 최선 후보는 Current-only에 가까웠지만 이를 넘지 못했다.
+\item \textbf{현재 판단:} 두 실험 모두 탐색 OOF이고 독립 재고 일반화 증거가 아니다. 손실 가중치와 다음 회복항 방정식은 사람이 결정하며, Stage2 특징 비교·적응 검사는 미실행이다.
 \end{itemize}
 
 \section*{시도 이력과 읽는 순서}
@@ -45,6 +47,8 @@ E2-C & 별도 셀로 80\% 예측구간 보정 & 포함률 상승, 구간 폭 증
 E2-D & 시나리오에서 팩 간·미사용 셀 교환 & 일관된 실제 이득 없어 채택 보류 \\
 E3 & 팀 규약으로 $V$·진단량·regret 정비 & 평가 코어 구현, 전체 재실험 준비 \\
 E4 & 추가 특징의 예측 개선이 팩 가치로 이어지는지 설계 & 대조군 실행, 학습 비교 입력 대기 \\
+E5 & 두 초기 용량 관측에서 궤적 예측·물리제약 비교 & OOF 실행 완료, V 이득 미확인·추가 검증 필요 \\
+E6 & 후보 구성방정식 잔차를 PINN에 적용 & 두 식·세 가중치 실행, 사람의 Pareto 검토 대기 \\
 \bottomrule
 \end{tabular}
 
@@ -456,12 +460,78 @@ ID·기준 시도 & 날짜, 담당, 어느 실행을 기준으로 비교하는�
 \end{tabular}
 
 앞으로는 연구상 결정이 바뀌거나 시도를 실행하거나 근거를 확인했을 때 관련 내용을 갱신한다. 긴 코드는 소스로 연결하고 본문에는 방법·조건·결과·판단을 남긴다. 담당자가 아직 정해지지 않았으므로 이 자료에서 임의로 배정하지 않았다.
+
 \clearpage
-\section{E5: 2026년 11월 11일 원격 입력 상태 정리}
-\state{최신 origin/main 기준. 입력 파일을 추가하거나 실험을 실행하지 않고 스키마·ID만 읽어 확인했다.}
+\section{E5: C\_full 기반 물리제약 초기 비교}
+\textbf{상태}\quad 2026년 11월 13일, Windows에서 구현·실행 및 39개 단위 테스트 통과. 설정은 \file{simulation/configs/physics_capacity_experiment_v1.json}, 결과는 \file{simulation/results/physics_capacity_n10_8S_v1/}이다.
 
-최신 \file{origin/main}에는 Stage 2 입력 \file{data/processed/features_v2.npz}, 선정 결과 \file{results/stage2_select/final_selection.json}, 공유 fold가 있다. 특징 파일은 \texttt{X} (86\,$\times$\,7\,$\times$\,148), \texttt{cell\_ids}, \texttt{budgets}, \texttt{feature\_names}, \texttt{base\_names}를 제공한다. 셀 ID는 \file{C\_full.npz}와 일치한다. 선정 JSON은 \texttt{screened} 20개와 최종 \texttt{features} 6개를 구분한다. V3 설계는 screened 20개를 비교 대상으로 삼으므로, V3 설정의 진단량 키를 \texttt{budgets}에 연결했다.
+\textbf{목적·가정}\quad 셀당 10사이클·8직렬 조건에서 Current-only, GP, 일반 MLP, 동일 구조의 물리제약 MLP를 비교했다. 예측 입력은 평가 셀의 사이클 1·6 용량과 차이뿐이다. 학습 셀 장기 궤적은 허용한다. 후보 추세는 $Q(x)=Q_6-k_s\sqrt{x}-k_\ell x$이며 확산형·선형 열화의 경험적 근사이지 검증된 지배방정식은 아니다. 측정 회복을 포함한 관측 용량 전체에 단조 감소를 강제하지 않았다.
 
-이 확인은 사전 스키마 점검일 뿐 preflight나 학습·팩 비교 실행이 아니다. 기존 V3 readiness 스냅샷의 fold 해시는 로컬 임시 fold를 가리키며 최신 공유 fold와 다르므로 새 결과로 공유하지 않는다. 로컬 임시 fold 두 벌, 셀별 배정, 입력 데이터, 구버전 PDF는 이번 브랜치에 포함하지 않는다. 다음 단계는 새 fold와 실제 입력에 대한 preflight, 선정 범위·관측 공개 근거 검토, 그리고 누락된 학습 비교 실행기 구현이다.
+\textbf{방법 구분}\quad 물리제약 MLP는 예측 경로에만 학습 셀 기반 회복 allowance를 둔 완만한 단조성 페널티와 2차 차분 매끄러움 페널티를 추가했다. ODE 잔차 $dQ/dx+k_s/(2\sqrt{x})+k_\ell$을 사용하지 않았으므로 엄격한 PINN이라고 부르지 않는다.
 
+\textbf{고정 조건·경계}\quad 공유 임시 셀 단위 5-fold와 각 외부 학습 fold 안의 3-fold 내부 선택을 사용했다. 표준화·튜닝은 학습 셀에만 적합했다. RUL은 예측 용량의 첫 엄격한 1.44 Ah 하회 시점에서 산출하며 2,000사이클 미도달은 검열한다. 검열 RUL 오차는 하한이다. 배정은 예측 RUL 내림차순, 동률은 공개 cycle-6 용량으로 푼 뒤 10×8팩·6개 미사용을 적용했다. 실제 미래 용량만 $V$ 평가에 사용했다.
+
+\begin{center}
+\begin{tabular}{lrrrr}
+\toprule
+방법 & 궤적 MAE (Ah) & RUL 오차 하한 (cycle) & 검열/86 & 실제 $V$; Current-only 차이 \\
+\midrule
+Current-only & -- & -- & -- & 3374.804; 0 \\
+GP & 0.06754 & 948.72 & 42 & 3200.857; -173.947 \\
+일반 MLP & 0.05586 & 1581.57 & 79 & 3288.567; -86.237 \\
+물리제약 MLP & 0.05690 & 1457.85 & 66 & 3227.416; -147.388 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{판단·한계}\quad 세 예측 방법 모두 Current-only보다 실제 $V$가 낮았고, 물리제약 MLP는 일반 MLP 대비 $V$ 개선이 없었다. RUL 검열이 매우 많아 초기 결과로 물리 정보의 이득을 주장할 수 없다. 전체 86셀 OOF 팩은 탐색용이며 독립 재고 일반화 성능이 아니다. 정확한 oracle이 정해지지 않아 regret은 계산하지 않았다. 다음 단계는 높은 검열의 원인을 진단하고 초기 사이클 외삽 기준선을 추가하는 것이다. 전체 열화식 논의, fold 설정, 결과 해석은 \file{experiment_v3_design.tex}의 E5 항목을 참조한다.
+
+\begin{Verbatim}[fontsize=\small]
+uv run --directory simulation python -m battery_sim.physics_experiment
+\end{Verbatim}
+\clearpage
+\section{E6: 구성방정식 잔차 PINN}
+\textbf{상태}\quad 2026년 11월 13일, 두 방정식과 잔차 가중치 grid 구현·실행. 최종 후보는 자동 선택하지 않고 Pareto 지표를 사람이 판단하도록 저장했다. 설정 \file{simulation/configs/constitutive_pinn_n10_8S_v1.json}, 결과 \file{simulation/results/constitutive_pinn_n10_8S_v1/}.
+
+\textbf{방정식·잔차}\quad $x=(N-6)/5$에서 아래 두 후보를 비교했다. 제곱근식은 $x=0$ 특이점을 피하려고 $\epsilon=0.05$ RPT만큼 정칙화한다. 계수망은 cycle-1·6 입력에서 양수 계수를 출력하고 용량망은 $Q_6$에 anchor한다.
+\[
+\begin{aligned}
+Q&=Q_6-k_s(\sqrt{x+\epsilon}-\sqrt{\epsilon})-k_\ell x, &
+r_s&=dQ/dx+k_s/(2\sqrt{x+\epsilon})+k_\ell,\\
+Q&=Q_6-k_e(1-e^{-x/\tau})-k_\ell x, &
+r_e&=dQ/dx+(k_e/\tau)e^{-x/\tau}+k_\ell.
+\end{aligned}
+\]
+이는 확산형·선형 감소와 포화형 초기 감소의 경험적 모델이다. 검증된 전기화학 지배법칙으로 간주하지 않는다. power-law 및 회복항 추가식은 이번 후보에서 제외했다.
+
+\textbf{손실과 고정값}\quad 학습은
+$\mathcal L=\mathrm{Huber}((\hat Q-Q)/0.05\mathrm{Ah})+
+\lambda\,\mathrm{mean}((r/0.02\mathrm{Ah/RPT})^2)$
+이며 $\lambda\in\{0.01,0.1,1.0\}$ 전부를 외부 fold마다 보고했다. 각 학습 셀 장기 이력에서 최대 12개 미래 RPT와 cycle-6 anchor, 셀마다 24개 residual collocation 지점을 썼다. 이 식들은 잠재 예측 추세를 감소시키지만, Huber 데이터 손실로 관측 회복을 제거하거나 단조화하지 않는다. 별도 회복 성분은 아직 없다.
+
+\textbf{실행 결과}\quad cycle-1·6만 입력, 공유 임시 5-fold, 셀당 10사이클, 8직렬, 비용 860. Current-only는 $V=3374.803785$다. 상대 V 지수는 Current-only를 100으로 둔 단순 비율이며 oracle/regret 점수가 아니다.
+\begin{center}
+\begin{tabular}{lrrrrr}
+\toprule
+방법 & 궤적 MAE (Ah) & RUL 오차 하한 & 검열/86 & 실제 $V$ & $\Delta V$ \\
+\midrule
+GP & .06754 & 948.72 & 42 & 3200.857 & -173.947 \\
+일반 NN & .06289 & 454.88 & 18 & 3064.715 & -310.089 \\
+sqrt-linear, $\lambda=.01$ & .06610 & 484.71 & 16 & 3318.358 & -56.446 \\
+sqrt-linear, $\lambda=.1$ & .06310 & 491.63 & 19 & 3116.915 & -257.888 \\
+sqrt-linear, $\lambda=1$ & .06443 & 454.59 & 16 & 3348.210 & -26.593 \\
+exponential-linear, $\lambda=.01$ & .06454 & 468.31 & 16 & 3029.731 & -345.073 \\
+exponential-linear, $\lambda=.1$ & .06336 & 516.28 & 20 & 3235.051 & -139.753 \\
+exponential-linear, $\lambda=1$ & .06129 & 472.38 & 17 & 3040.329 & -334.475 \\
+\bottomrule
+\end{tabular}
+\end{center}
+sqrt-linear $\lambda=1$이 일반 NN 대비 $V$를 283.495 Ah·cycle 높였으나 Current-only보다 26.593 낮다(기준 100 대비 99.2). 따라서 개선은 일반 NN 대비로는 관측되었지만, 실제 기준선 대비나 “드라마틱한 개선”은 확인되지 않았다. 전체 OOF 팩은 탐색용이며 이 표에서 사후 후보 선택을 하면 독립 검증이 아니다. regret은 oracle 미정으로 계산하지 않았다.
+
+\textbf{사람이 결정할 항목}\quad 다음 반복 전 (1) 제곱근/포화식의 화학적 타당성과 실제 회복항 필요성, (2) Huber scale 0.05 Ah와 residual scale 0.02 Ah/RPT의 적절성, (3) 탐색한 $\lambda$ 범위의 확대·축소 여부, (4) 용량 궤적·로그-RUL·팩 가치 중 개발 내부에서 우선할 목적을 정해야 한다. 현재 학습 손실에는 팩 V 보상이 없다. V는 외부 평가 지표로만 사용했다. outer OOF V를 보고 모델을 선택했다면 그 선택 결과는 탐색으로 남기고, 별도 재고나 사전 고정된 새 평가가 필요하다.
+
+\textbf{산출물·재현}\quad \file{oof_predictions.csv}, \file{fold_metrics.csv}, \file{metrics.csv}, \file{pack_assignments.json}, \file{fit_log.json}, \file{manifest.json}에 입력 해시·fold·손실과 후보 결과를 기록했다. 43개 단위 테스트 통과.
+\begin{Verbatim}[fontsize=\small]
+uv run --directory simulation python -m battery_sim.constitutive_pinn
+\end{Verbatim}
 \end{document}

@@ -1,5 +1,5 @@
 폐배터리 연구 · VS Code / Codex 시작 안내
-2026-11-05 기준 안내; 원격 입력 상태는 2026-11-11 갱신
+2026-11-13
 
 이후 작업 위치
   저장소를 복제한 폴더 (이 안내의 경로는 모두 저장소 기준)
@@ -10,16 +10,24 @@
   86셀 V 평가, 진단 비용, 미사용 배정, 교환 후보, DFF 계산 코어
   V3 특징 비교 설계, 두 RPT 용량 특징, 입력 점검
   실제 용량 대조군 32개 조건, 검증 35개 통과
-  Stage2 학습 비교·적응 진단 전체 실행은 아직 없음
+  C_full만 쓰는 n=10·8직렬 GP/일반 NN/물리제약 NN OOF 비교 구현·실행
+  두 ODE 잔차 PINN(제곱근+선형, 포화 지수+선형)과 잔차 가중치 grid 구현·실행
+  검증 43개 통과; Stage2 특징 비교·적응 진단은 미실행
 
 중요 파일
   AGENTS.md                              Codex가 매 작업에서 읽을 기준
   simulation/configs/experiment_plan_v3.json  V3 설계·입력 경로
   simulation/configs/evaluation_contract_v3.json  V·비용·배정 규약
   simulation/battery_sim/experiment_v3.py  입력 점검·용량 대조군
+  simulation/battery_sim/physics_experiment.py  C_full 용량 궤적 모델 비교
+  simulation/configs/physics_capacity_experiment_v1.json  초기 10사이클·8직렬 설정
+  simulation/results/physics_capacity_n10_8S_v1/  OOF 예측·평가 결과와 실행 manifest
+  simulation/battery_sim/constitutive_pinn.py  ODE 잔차 PINN 비교기
+  simulation/configs/constitutive_pinn_n10_8S_v1.json  두 식·잔차 가중치 grid 설정
+  simulation/results/constitutive_pinn_n10_8S_v1/  PINN OOF 후보별 결과
   simulation/reference_results/v3_initial_controls/  이관 전 기준 결과
   docs/simulation_handoff/연구진행_인계자료.pdf  연구 이유·변경·해석
-  data/processed/folds.csv                최신 origin/main의 공유 fold (로컬 임시본 사용 금지)
+  data/processed/folds.csv                Stage2·3 공통 임시 5-fold
 
 실행
   VS Code F5: V3. 새 실험 입력·준비 상태 확인
@@ -28,20 +36,29 @@
   저장소 루트에서 실행: uv run --directory simulation python -m battery_sim.experiment_v3 --stage preflight
   검증: uv run --directory simulation python -m unittest discover -s tests -q
   기존 Stage2용 conda는 그대로 보존되어 있다. V3 환경에는 Stage2 전체 의존성을 설치하지 않았다.
+  새 PyTorch 의존성은 simulation/pyproject.toml 및 uv.lock에서 관리한다.
 
-최신 원격 입력 상태 (2026-11-11)
-  최신 origin/main에는 features_v2.npz, final_selection.json, 공유 folds.csv가 있다.
-  특징 배열 키: X (86×7×148), cell_ids, budgets, feature_names, base_names.
-  선정 JSON: screened 20개, features 6개. X의 셀 ID는 C_full.npz와 일치한다.
-  V3 설정은 진단량 키를 budgets로 매핑했다. preflight와 선정 근거·관측 공개 범위 검토는 아직 필요하다.
-  Stage2 학습 비교 실행기, GP+DFF 적응 진단, 정확한 regret은 아직 구현·실행되지 않았다.
-  이전 로컬 임시 fold와 readiness 스냅샷은 새 공유 fold와 다르므로 기준 결과로 사용하지 않는다.
+  C_full 용량 모델 비교
+    uv run --directory simulation python -m battery_sim.physics_experiment
+    현재 OOF 전체 팩 V는 Current-only 3374.803785, GP 3200.856840,
+    일반 NN 3288.566720, 물리제약 NN 3227.416120 Ah·cycles이다.
+    이는 동일 86셀에서 생성한 탐색용 OOF 배정이지 독립 재고 일반화 성능이 아니다.
+  ODE 잔차 PINN 비교
+    uv run --directory simulation python -m battery_sim.constitutive_pinn
+    최고 PINN은 sqrt-linear, 잔차 가중치 1.0, V=3348.210495 (Current-only 대비 -26.593290).
+    각 후보 V는 OOF 탐색 결과이며 독립 재고 평가가 아니다.
+
+빠진 입력
+  data/processed/features_v2.npz
+  results/stage2_select/final_selection.json
+  두 파일이 오면 실제 배열 키, 셀 ID, 시점별 공개 범위와 특징 선정 근거를 확인한다.
+  지금은 preflight가 학습 비교 준비 안 됨을 표시하는 것이 정상이다.
 
 Codex에서 시작할 첫 요청 예시
   "AGENTS.md와 simulation/START_HERE.txt, V3 설정과 인계자료를 먼저 읽고 현재 구현을 확인해.
-   최신 공유 fold와 실제 Stage2 입력의 스키마·선정 범위·공개 관측 근거를 확인하고,
-   V3 preflight를 실행해. 아직 학습 비교 실행기는 미구현이므로 결과를 만들었다고 주장하지 말고,
-   셀 단위 분할 및 학습 내부 전처리·튜닝 원칙을 지키는 실행기를 설계해."
+   V3 전용 Python으로 검증과 입력 점검을 실행하고, Stage2 특징 비교 학습 실행기의
+   미구현 부분을 정리해. 특징 파일이 없으면 결과를 만들지 말고, 셀 단위 분할과
+   학습 내부 전처리·튜닝을 지키는 실행기부터 구현해. 설계·구현·실행 상태를 구분해 보고해."
 
 Codex 화면
   왼쪽 Codex 아이콘에서 연다. Copilot Chat과 구분한다.

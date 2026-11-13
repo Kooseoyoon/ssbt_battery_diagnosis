@@ -23,13 +23,75 @@ RUL 예측으로 배정한 뒤 실제 미래 용량으로 V를 평가하므로 1
 
 **실행된 범위:** 입력 점검, 28개 균등 진단·최신 용량 정렬 및 초기 Current-only 4개 조건.
 **아직 미실행:** Stage 2 학습 비교, nested 학습 실행기, GP와 연결한 DFF 적응 진단, 정확한 oracle regret.
-최신 `origin/main`에는 `features_v2.npz`와 `final_selection.json`이 추가되어 있다. 배열은 `X`(86×7×148), `cell_ids`, `budgets`, `feature_names`, `base_names`이며 입력 셀 ID는 `C_full.npz`와 일치한다. 선정 JSON의 `screened`는 20개, `features`는 6개다. V3 설정은 `budgets`를 진단량 키로 사용한다.
-새 입력이 V3의 실제 관측 공개 범위와 선정 근거를 만족하는지 preflight 및 분석으로 확인해야 하며, 파일 존재만으로 학습 비교가 완료된 것은 아니다.
+팀의 `features_v2.npz`와 `final_selection.json`은 현재 로컬에 없다. 파일 수신 후 실제 키와 선정 목록 형식을 매핑해야 한다.
+설정의 NPZ 키는 제안 형식이며 실제 확인된 스키마가 아니다. 특징 선정과 공개 관측 범위의 근거도 확인해야 한다.
 결과는 `results/experiment_design_v3/`의 `readiness.json`, `control_metrics.csv`, `control_assignments.json`에 저장한다.
 
 Current-only는 n=10, 비용 860의 고정 비교점이다. `capacity_updated`는 각 예산에서 최신 용량으로 다시 정렬하는 별도 대조군이다.
 전체 86셀 OOF 배정은 탐색용이다. 서로 다른 fold의 학습에 다른 셀 정답이 들어가므로 독립 86셀 팩 일반화 평가로 주장하지 않는다.
 공유 5-fold의 셀별 예측 오차와 17~18셀 fold 내 배정 결과는 별도로 보고한다. screened20이 평가 셀 정답으로 선정됐다면 fold 안에서 재선정한다.
+
+## C_full 용량 궤적·물리제약 초기 비교
+
+`features_v2.npz` 없이 공개된 사이클 1·6 용량만 입력으로 사용해 10사이클·8직렬 조건을 비교한다.
+학습 셀의 장기 궤적은 허용하고, 공유 셀 단위 5-fold의 각 외부 평가 셀에서는 미래·EOL을
+예측이 고정된 뒤 평가에만 쓴다. GP, 같은 MLP 구조의 일반 NN, 예측 추세에 단조성·매끄러움
+페널티를 더한 NN을 Current-only와 비교한다.
+
+```bash
+uv run --directory simulation python -m battery_sim.physics_experiment
+```
+
+설정은 `configs/physics_capacity_experiment_v1.json`, 결과는
+`results/physics_capacity_n10_8S_v1/`에 저장한다. RUL은 예측 용량이 1.44 Ah 아래로
+처음 내려가는 cycle 11 이후 첫 RPT까지의 간격이다. 2,000사이클 안에 도달하지 않으면
+`horizon_censored`로 표시하며, 그 경우 RUL 절대오차는 하한이다. OOF 전체 재고 팩 V는
+탐색용이며 독립 86셀 일반화 결과가 아니다. 전역 oracle regret은 계산하지 않는다.
+
+이 모델은 단조성·매끄러움 손실만 쓰며, 지배방정식 잔차를 최소화하는 엄격한 PINN이 아니다.
+관측 용량에 단조성을 강제하지 않으며, 물리 페널티는 모델이 생성한 예측 추세에만 적용한다.
+실제 입력·가정·결과·한계는 `docs/simulation_handoff/experiment_v3_design.tex`에 기록한다.
+
+## 구성방정식 잔차 PINN 비교
+
+앞선 물리제약 NN과 구분되는 후속 실험이다. PINN은 용량 신경망을 사이클 6 용량에 anchor하고,
+초기 관측으로부터 양수 열화계수망을 학습해 두 ODE 잔차를 사용한다.
+
+```text
+sqrt-linear:   Q = Q6 - ks*(sqrt(x+eps)-sqrt(eps)) - kl*x
+               dQ/dx + ks/(2*sqrt(x+eps)) + kl = 0
+exponential:   Q = Q6 - ke*(1-exp(-x/tau)) - kl*x
+               dQ/dx + (ke/tau)*exp(-x/tau) + kl = 0
+```
+
+`x=(cycle-6)/5`이며 계수는 양수로 제한한다. 학습 손실은 `Huber(capacity error)` +
+`lambda * scaled ODE residual²`이고 `lambda`는 `[0.01, 0.1, 1.0]`을 모두 실행한다.
+V를 보상함수로 학습하지 않는다. 모든 후보의 궤적 오차·RUL 오차·검열률·실제 V를 함께 내며
+자동 우승자를 선택하지 않아 사람이 trade-off를 판단할 수 있다. 실제 용량 회복은 관측 잔차로
+허용하지만, 선택한 두 잠재 열화식에는 별도의 회복항이 없다.
+
+```bash
+uv run --directory simulation python -m battery_sim.constitutive_pinn
+```
+
+설정은 `configs/constitutive_pinn_n10_8S_v1.json`, 결과는
+`results/constitutive_pinn_n10_8S_v1/`이다. OOF 전체 재고 탐색 결과(현재 V 기준 100점 환산):
+
+| 후보 | 궤적 MAE (Ah) | RUL 오차 하한 (cycle) | 검열/86 | 실제 V | 상대 V 지수 |
+|---|---:|---:|---:|---:|---:|
+| Current-only | — | — | — | 3374.804 | 100.0 |
+| GP | 0.06754 | 948.72 | 42 | 3200.857 | 94.8 |
+| 일반 NN (동일 구조·데이터 손실) | 0.06289 | 454.88 | 18 | 3064.715 | 90.8 |
+| sqrt-linear PINN, lambda=0.01 | 0.06610 | 484.71 | 16 | 3318.358 | 98.3 |
+| sqrt-linear PINN, lambda=0.1 | 0.06310 | 491.63 | 19 | 3116.915 | 92.4 |
+| sqrt-linear PINN, lambda=1.0 | 0.06443 | 454.59 | 16 | 3348.210 | 99.2 |
+| exponential-linear PINN, lambda=0.01 | 0.06454 | 468.31 | 16 | 3029.731 | 89.8 |
+| exponential-linear PINN, lambda=0.1 | 0.06336 | 516.28 | 20 | 3235.051 | 95.9 |
+| exponential-linear PINN, lambda=1.0 | 0.06129 | 472.38 | 17 | 3040.329 | 90.1 |
+
+sqrt-linear `lambda=1`은 이번 OOF에서 일반 NN보다 V가 283.495 Ah·cycle 높았지만 Current-only에는
+26.593 Ah·cycle 못 미쳤다(상대 지수 99.2). 따라서 실제 기준선 대비 개선이나 극적인 향상은 확인되지 않았다. 모든 V는 같은 86셀에서 생성한 탐색용 OOF 결과로,
+독립 재고 일반화 성능이 아니다. lambda 선택에 OOF V를 쓰면 사후 선택이므로 확인 실험이 필요하다.
 
 ## 현재 규약: 팀 피드백에 따른 V 지표
 
@@ -60,7 +122,8 @@ uv run python -m unittest discover -s tests -v
 결과는 `results/value_contract_v3/`에 저장한다. 균등 선택의 7개 예산·60개 라운드 장부도 함께 검증한다.
 이전 무작위 사전 제외 결과는 `results/value_contract_v3_random_exclusion_superseded/`에 보관했다. 예전 V1/V2 숫자는 아래의 구지표 실험으로 보존하며 새 regret으로 환산하지 않는다.
 
-`data/processed/folds.csv`의 최신 공유 버전은 저장소 `origin/main`에 있다. 이전 로컬 작업의 시드 42 임시 fold와 `simulation/data/processed/` 복사본은 이를 대체하지 않으며 이번 공유 변경에는 포함하지 않는다. 각 셀의 모든 관측은 같은 fold에 속한다.
+`data/processed/folds.csv`에 86셀의 `cell_id,fold`(0~4)를 저장했다. 원본 데이터 폴더에는 공유 파일이 없어
+시드 42로 만든 로컬 임시본이며, 팀의 공식 공유 파일이 오면 그 파일을 우선한다. 각 셀의 모든 관측은 같은 fold에 속한다.
 기존 V2의 2-fold 실행을 5-fold 실행으로 소급 표기하지 않는다. 5-fold 평가군은 17~18셀이므로
 12S/16S는 한 팩만 남는다. 예측 평가 fold와 여러 팩의 배정을 비교할 평가 후보군의 설계를 구분해야 한다.
 
