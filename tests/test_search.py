@@ -149,7 +149,7 @@ def test_matches_brute_force_small_no_unused(seed):
     C, sc, obj = setup(seed=seed, n_cells=8)
     exact = brute_force(sc, 8, 4)
     rng = np.random.default_rng(seed)
-    starts = [("random", S.random_start(8, 4, rng)) for _ in range(5)]
+    starts = [(f"random_{k}", S.random_start(8, 4, rng)) for k in range(5)]
     res = S.best_of(starts, obj, 4, S.SearchConfig(sa_iters=3000), rng)
     assert res.value <= exact + 1e-9
     assert res.value >= exact - 1e-9
@@ -160,7 +160,7 @@ def test_matches_brute_force_small_with_unused(seed):
     C, sc, obj = setup(seed=seed, n_cells=9)
     exact = brute_force(sc, 9, 4)
     rng = np.random.default_rng(seed)
-    starts = [("random", S.random_start(9, 4, rng)) for _ in range(6)]
+    starts = [(f"random_{k}", S.random_start(9, 4, rng)) for k in range(6)]
     res = S.best_of(starts, obj, 4, S.SearchConfig(sa_iters=4000), rng)
     assert res.value == pytest.approx(exact)
 
@@ -173,7 +173,7 @@ def test_best_of_never_falls_below_a_supplied_start():
     baseline = S.sorted_start(C[:, 1], 4)
     v_base = sc.labels(baseline)
     starts = [("current", baseline)] + \
-             [("random", S.random_start(13, 4, rng)) for _ in range(3)]
+             [(f"random_{k}", S.random_start(13, 4, rng)) for k in range(3)]
     res = S.best_of(starts, obj, 4, S.SearchConfig(sa_iters=2000), rng)
     assert res.value >= v_base - 1e-9
     assert len(res.log_rows()) == len(starts) * 2        # hill climb + SA each
@@ -182,7 +182,7 @@ def test_best_of_never_falls_below_a_supplied_start():
 def test_result_value_matches_a_fresh_rescore():
     C, sc, obj = setup(seed=8, n_cells=13)
     rng = np.random.default_rng(4)
-    starts = [("random", S.random_start(13, 4, rng)) for _ in range(3)]
+    starts = [(f"random_{k}", S.random_start(13, 4, rng)) for k in range(3)]
     res = S.best_of(starts, obj, 4, S.SearchConfig(sa_iters=2000), rng)
     assert res.value == pytest.approx(sc.labels(res.labels))
 
@@ -236,3 +236,66 @@ def test_annealing_survives_a_very_long_cooling_schedule():
     res = S.anneal(S.random_start(13, 4, np.random.default_rng(0)), obj, 4,
                    cfg, np.random.default_rng(0))
     assert np.isfinite(res.value)
+
+
+# ------------------------------------------------ fixes after review (11/15)
+
+def rugged(seed=0, n_cells=48, n_cols=200):
+    """Curves with knees and noise: many local optima, unlike the smooth toy."""
+    rng = np.random.default_rng(seed)
+    C = np.full((n_cells, n_cols), np.nan)
+    k = np.arange(n_cols)
+    for i in range(n_cells):
+        c0, r1 = rng.uniform(1.85, 2.0), rng.uniform(0.003, 0.012)
+        knee, r2 = rng.uniform(5, 60), rng.uniform(0.005, 0.03)
+        cur = c0 - r1 * k - r2 * np.clip(k - knee, 0, None) + rng.normal(0, 0.004, n_cols)
+        below = np.flatnonzero(cur < THR - 0.02)
+        end = min(n_cols, below[0] + 3)
+        C[i, :end] = cur[:end]
+    return C
+
+
+def test_each_start_keeps_its_answer_when_the_list_is_reordered():
+    """Start streams are keyed by name, so order cannot change any start's result.
+
+    The original position-keyed streams pass the small test above by luck
+    (every stream reaches the same optimum) but fail here.
+    """
+    C = rugged(seed=3)
+    obj = P.PackScorer(C, 0, THR).pack
+    rng = np.random.default_rng(0)
+    starts = [("sorted", S.sorted_start(-np.arange(48), 4))]
+    starts += [(f"random_{k}", S.random_start(48, 4, rng)) for k in range(5)]
+    cfg = S.SearchConfig(sa_iters=3000, sa_end_ratio=1e-3)
+    fwd = S.best_of(starts, obj, 4, cfg, seed=7)
+    rev = S.best_of(starts[::-1], obj, 4, cfg, seed=7)
+    by_kind = {r.kind: r for r in fwd.starts}
+    for r in rev.starts:
+        assert r.value == by_kind[r.kind].value
+        assert np.array_equal(r.labels, by_kind[r.kind].labels)
+    assert fwd.value == rev.value
+
+
+def test_best_of_rejects_duplicate_start_names():
+    C, sc, obj = setup(seed=1, n_cells=12)
+    lab = S.random_start(12, 4, np.random.default_rng(0))
+    with pytest.raises(ValueError):
+        S.best_of([("a", lab), ("a", lab)], obj, 4, S.SearchConfig(sa_enabled=False))
+
+
+def test_start_stream_depends_on_name_not_call_order():
+    x = S.start_stream(0, "random_03", 1).random(5)
+    S.start_stream(0, "random_01", 1).random(5)       # another stream in between
+    assert np.array_equal(x, S.start_stream(0, "random_03", 1).random(5))
+    assert not np.array_equal(x, S.start_stream(0, "random_04", 1).random(5))
+
+
+@pytest.mark.parametrize("pack_size", [2, 4, 8])
+def test_sa_end_ratio_sets_the_last_temperature(pack_size):
+    """Every draw cools, so end/start equals sa_end_ratio for any pack size."""
+    C = rugged(seed=5, n_cells=24)
+    obj = P.PackScorer(C, 0, THR).pack
+    cfg = S.SearchConfig(sa_iters=4000, sa_end_ratio=1e-4, sa_polish=False)
+    res = S.anneal(S.random_start(24, pack_size, np.random.default_rng(0)), obj,
+                   pack_size, cfg, np.random.default_rng(1))
+    assert res.sa_temp_end / res.sa_temp_start == pytest.approx(1e-4, rel=1e-6)

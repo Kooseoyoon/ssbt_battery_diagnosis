@@ -13,7 +13,8 @@ sa_iters: 20000
 sa_t0: null              # null -> set from the swap sizes this problem offers
 sa_t0_quantile: 0.5
 sa_t0_samples: 400
-sa_cooling: 0.9995
+sa_cooling: 0.9995        # ignored while sa_end_ratio is set
+sa_end_ratio: 1.0e-4     # last temperature / first; cooling = sa_end_ratio ** (1 / sa_iters)
 sa_polish: true
 
 # Leave null for a flat iteration count. If the exhaustive check shows the

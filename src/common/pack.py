@@ -236,6 +236,17 @@ class PackScorer:
     def single(self, i) -> float:
         return self.pack([i])
 
+    def objective_for(self, cells):
+        """Objective for an inventory given as rows of C.
+
+        The search hands the objective *positions* in its label array; this
+        turns them back into rows before scoring. Use it whenever the
+        inventory is not all of C (e.g. a 64-cell subset): passing `self.pack`
+        directly would score the wrong cells without raising.
+        """
+        cells = np.asarray(cells, dtype=int).ravel()
+        return lambda pos: self.pack(cells[np.asarray(pos, dtype=int)])
+
     def labels(self, labels) -> float:
         """V of an assignment given as a label array."""
         return float(sum(self.pack(p) for p in packs_from_labels(labels)))

@@ -23,6 +23,7 @@ Both are plain swaps, so every pack keeps exactly n cells throughout.
 from __future__ import annotations
 
 import time
+import zlib
 from dataclasses import dataclass, field, asdict
 
 import numpy as np
@@ -30,7 +31,8 @@ import numpy as np
 from .pack import UNUSED, check_labels
 
 __all__ = ["SearchConfig", "StartResult", "SearchResult",
-           "sorted_start", "random_start", "swap_search", "anneal", "best_of"]
+           "sorted_start", "random_start", "swap_search", "anneal", "best_of",
+           "start_stream"]
 
 
 # ------------------------------------------------------------------ config
@@ -47,7 +49,9 @@ class SearchConfig:
     sa_t0: float | None = None        # None -> scale from the data
     sa_t0_quantile: float = 0.5       # which |delta| sets the start temperature
     sa_t0_samples: int = 400
-    sa_cooling: float = 0.9995
+    sa_cooling: float = 0.9995        # used only when sa_end_ratio is None
+    sa_end_ratio: float | None = None # final temp / start temp; sets the cooling
+                                      # from the iteration count when given
     sa_polish: bool = True            # hill climb once the temperature is gone
 
     # scale sa_iters with the neighbourhood so one config fits every condition
@@ -75,6 +79,8 @@ class StartResult:
     accepted_pack: int = 0
     accepted_unused: int = 0
     sa_accepted_worse: int = 0
+    sa_temp_start: float = 0.0        # annealing only: first and last temperature
+    sa_temp_end: float = 0.0
     seconds: float = 0.0
 
 
@@ -94,6 +100,8 @@ class SearchResult:
                  "accepted_pack": s.accepted_pack,
                  "accepted_unused": s.accepted_unused,
                  "sa_accepted_worse": s.sa_accepted_worse,
+                 "sa_temp_start": s.sa_temp_start,
+                 "sa_temp_end": s.sa_temp_end,
                  "seconds": s.seconds} for s in self.starts]
 
 
@@ -256,15 +264,23 @@ def anneal(labels, objective, pack_size, cfg=None, rng=None, kind="sa"):
                     * neighbourhood_size(st.labels.size, pack_size))
 
     temp = _start_temperature(st, cfg, rng)
+    res.sa_temp_start = temp
+    cooling = cfg.sa_cooling
+    if cfg.sa_end_ratio is not None and iters > 0:
+        cooling = float(cfg.sa_end_ratio) ** (1.0 / iters)
     best_labels, best_value = st.labels.copy(), st.total
     n = st.labels.size
 
     for _ in range(iters):
+        # every draw cools, so the last temperature is set by iters alone and
+        # does not depend on how often a draw lands inside one pack
         a, b = (int(x) for x in rng.integers(0, n, 2))
         if st.labels[a] == st.labels[b]:
+            temp *= cooling
             continue
         d = st.delta(a, b)
         if d is None:
+            temp *= cooling
             continue
         gain = d[0]
         if gain > cfg.tol:
@@ -281,8 +297,9 @@ def anneal(labels, objective, pack_size, cfg=None, rng=None, kind="sa"):
                 res.accepted_unused += 1
             if st.total > best_value:
                 best_labels, best_value = st.labels.copy(), st.total
-        temp *= cfg.sa_cooling
+        temp *= cooling
 
+    res.sa_temp_end = temp
     res.labels, res.value = best_labels.copy(), best_value
     if cfg.sa_polish:
         polished = swap_search(best_labels, objective, pack_size, cfg, rng, kind)
@@ -297,6 +314,14 @@ def anneal(labels, objective, pack_size, cfg=None, rng=None, kind="sa"):
 
 # ------------------------------------------------------------------ best of
 
+def start_stream(base, kind, which):
+    """Random stream for one start, keyed by the start's name (not its place).
+
+    `which` is 0 for the hill climb and 1 for annealing.
+    """
+    return np.random.default_rng([int(base), zlib.crc32(str(kind).encode()), int(which)])
+
+
 def best_of(starts, objective, pack_size, cfg=None, rng=None, seed=None):
     """Run every start through hill climbing (and SA), keep the best.
 
@@ -304,24 +329,26 @@ def best_of(starts, objective, pack_size, cfg=None, rng=None, seed=None):
     passing the industry assignment first makes the result at least as good
     as that baseline and keeps G from turning negative.
 
-    Each start draws its own stream from `seed` (falling back to cfg.seed), so
-    a start lands on the same answer wherever it sits in the list and whether
-    the starts are run one after another or in parallel.
+    Each start draws its own streams from `seed` (falling back to cfg.seed)
+    and its own *name*, not its position, so a start lands on the same answer
+    wherever it sits in the list and whether the starts are run one after
+    another or in parallel. Start names must therefore be unique.
     """
     cfg = cfg or SearchConfig()
     t0 = time.perf_counter()
     starts = list(starts)
     base = cfg.seed if seed is None else seed
-    children = np.random.SeedSequence(base).spawn(2 * len(starts))
+    kinds = [kind for kind, _ in starts]
+    if len(set(kinds)) != len(kinds):
+        raise ValueError("start names must be unique: they pick the random streams")
 
     out = []
-    for i, (kind, labels) in enumerate(starts):
+    for kind, labels in starts:
         out.append(swap_search(labels, objective, pack_size, cfg,
-                               np.random.default_rng(children[2 * i]), kind))
+                               start_stream(base, kind, 0), kind))
         if cfg.sa_enabled:
             out.append(anneal(labels, objective, pack_size, cfg,
-                              np.random.default_rng(children[2 * i + 1]),
-                              kind + "+sa"))
+                              start_stream(base, kind, 1), kind + "+sa"))
 
     best = max(out, key=lambda r: r.value)
     return SearchResult(labels=best.labels, value=best.value,

@@ -258,3 +258,26 @@ def test_scorer_counts_calls():
     sc.pack([0, 1])
     sc.pack([2, 3])
     assert sc.calls == 2
+
+
+# ------------------------------------------------ fixes after review (11/15)
+
+def test_objective_for_scores_rows_not_positions():
+    """On a subset inventory the search hands over positions; they must map to rows."""
+    C = toy(seed=4, n_cells=12)
+    sc = P.PackScorer(C, 0, THR)
+    cells = np.array([3, 7, 9, 11])
+    obj = sc.objective_for(cells)
+    assert obj([0, 1]) == sc.pack([3, 7])
+    assert obj(np.array([2, 3])) == sc.pack([9, 11])
+    assert obj([0, 1]) != sc.pack([0, 1])        # the silent mistake it prevents
+
+
+def test_objective_for_matches_labels_value_on_a_subset():
+    C = toy(seed=6, n_cells=12)
+    sc = P.PackScorer(C, 10, THR)
+    cells = np.array([0, 2, 4, 5, 8, 9, 10, 11, 1])   # 9 cells -> 2 packs of 4 + 1 unused
+    labels = np.array([0, 1, 0, 1, 0, 1, 0, 1, P.UNUSED])
+    obj = sc.objective_for(cells)
+    via_obj = sum(obj(p) for p in P.packs_from_labels(labels))
+    assert via_obj == pytest.approx(P.labels_value(C, labels, 10, THR, cells))
