@@ -1,0 +1,22 @@
+# Fixed search settings. Chosen by stage1_exhaustive.py and then left alone,
+# so every stage searches the same way.
+
+# how many random starts the CALLER should build; search.py only
+# runs the starts it is handed, it does not create them
+n_random_starts: 20
+seed: 0
+max_sweeps: 100
+tol: 1.0e-9
+
+sa_enabled: true
+sa_iters: 20000
+sa_t0: null              # null -> set from the swap sizes this problem offers
+sa_t0_quantile: 0.5
+sa_t0_samples: 400
+sa_cooling: 0.9995
+sa_polish: true
+
+# Leave null for a flat iteration count. If the exhaustive check shows the
+# problems with unused cells falling behind, set this instead so the budget
+# grows with the neighbourhood (decision for issue 3).
+sa_iters_per_neighbour: null
