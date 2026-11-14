@@ -60,7 +60,7 @@ class SearchConfig:
     @classmethod
     def from_yaml(cls, path):
         import yaml
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:      # Windows 기본(cp949)으로 읽지 않게
             return cls(**(yaml.safe_load(fh) or {}))
 
     def to_dict(self):

@@ -193,7 +193,7 @@ def test_config_round_trips_through_yaml():
     cfg = S.SearchConfig.from_yaml(path)
     assert cfg.n_random_starts == 20
     assert cfg.max_sweeps == 100
-    assert cfg.sa_enabled is True
+    assert cfg.sa_enabled is False        # 11/15 결정: 교환 탐색만 (docs/stage1_sa_decision.md)
     assert yaml.safe_load(yaml.safe_dump(cfg.to_dict())) == cfg.to_dict()
 
 
@@ -299,3 +299,20 @@ def test_sa_end_ratio_sets_the_last_temperature(pack_size):
     res = S.anneal(S.random_start(24, pack_size, np.random.default_rng(0)), obj,
                    pack_size, cfg, np.random.default_rng(1))
     assert res.sa_temp_end / res.sa_temp_start == pytest.approx(1e-4, rel=1e-6)
+
+
+def test_config_loads_utf8_korean_on_a_cp949_machine(tmp_path, monkeypatch):
+    """한국어 Windows는 open()의 기본 인코딩이 cp949라 UTF-8 한글 주석에서 깨졌다.
+    open의 기본값을 cp949로 바꿔 그 상황을 흉내 낸다."""
+    import builtins
+    path = tmp_path / "search.yaml"
+    path.write_text("# 한글 주석: 교환 탐색만\nsa_enabled: false\n", encoding="utf-8")
+    real_open = builtins.open
+
+    def cp949_default_open(file, mode="r", *args, **kwargs):
+        if "b" not in mode and "encoding" not in kwargs and len(args) < 2:
+            kwargs["encoding"] = "cp949"
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", cp949_default_open)
+    assert S.SearchConfig.from_yaml(path).sa_enabled is False
