@@ -313,7 +313,7 @@ def finalize(variant="raw"):
     gate = make_gate(main, seedvar)
     gate.to_csv(OUT / f"g1_gate{sfx}.csv", index=False)
     if variant == "raw":
-        figure_b(main)
+        figure_b(gate)
     write_repro(variant, sfx)
     print(f"[{variant}] 인스턴스 {len(main)}줄, 기준선이 갱신된 경우 "
           f"O10 {int(main.refreshed_O10.sum())} / O0 {int(main.refreshed_O0.sum())}")
@@ -345,33 +345,79 @@ def make_gate(inst, seedvar):
     return pd.DataFrame(rows)
 
 
-def figure_b(inst, size=64, eol=60):
+FIG_COLORS = {32: "#eb6834", 64: "#2a78d6", 86: "#1baf7a"}   # 색약 검사 통과 (dataviz 검사기)
+FIG_MARKERS = {32: "s", 64: "o", 86: "D"}
+
+
+def figure_b(gate, eol=60, out_path=None):
+    """Figure B: 팩 크기별 G_info, 재고 크기 32/64/86셀을 한 그림에.
+
+    점마다 (팩 수, 미사용 셀 수)를 적어 '팩 크기 효과'와 '팩 수·미사용 효과'를 함께 읽게 한다.
+    32·64셀은 재고 1,000개의 중앙값과 p05~p95 띠, 86셀은 데이터 전체 1개.
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    g = inst[(inst.inventory_size == size) & (inst.eol_pct == eol)]
+
+    g = gate[(gate.eol_pct == eol) & (gate.variant == "raw")]
     if g.empty:
-        print("Figure B: 64셀 EOL 60% 결과가 아직 없어 건너뜀")
+        print(f"Figure B: EOL {eol}% 결과가 없어 건너뜀")
         return
-    agg = g.groupby("pack_size").agg(
-        gi_med=("G_info", "median"), gi_lo=("G_info", lambda s: s.quantile(0.05)),
-        gi_hi=("G_info", lambda s: s.quantile(0.95)), gt_med=("G_total", "median")).reset_index()
-    x = agg.pack_size.values
-    fig, ax = plt.subplots(figsize=(6, 4), dpi=160)
-    ax.fill_between(x, 100 * agg.gi_lo, 100 * agg.gi_hi, color="#2a78d6", alpha=0.18,
-                    label="G_info p05-p95")
-    ax.plot(x, 100 * agg.gi_med, "o-", color="#2a78d6", lw=2, label="G_info median (NMC)")
-    ax.plot(x, 100 * agg.gt_med, "o--", color="#2a78d6", lw=1.2, alpha=0.7, label="G_total median")
-    ax.axhline(10, color="#52514e", lw=1, ls=":", label="10% (G1 criterion on p05)")
-    ax.set_xticks(x)
-    ax.set_xlabel("pack size (cells in series)")
-    ax.set_ylabel("gain over current practice (%)")
-    ax.set_title(f"Figure B - value of future information ({size}-cell inventories, EOL {eol}%)",
-                 fontsize=10, loc="left")
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(frameon=False, fontsize=8)
-    fig.tight_layout()
-    fig.savefig(OUT / "figure_b.png")
+    INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e7e6e2", "#fcfcfb"
+    fig, ax = plt.subplots(figsize=(7.6, 4.9), dpi=200, facecolor=SURF)
+    ax.set_facecolor(SURF)
+    sizes = sorted(g.inventory_size.unique())
+    offsets = {32: -0.45, 64: 0.0, 86: 0.45}          # 겹치지 않게 살짝 옆으로
+    tag_dy = {32: -9, 64: 8, 86: 8}                    # 32셀 라벨은 점 아래, 나머지는 위
+    for size in sizes:
+        d = g[g.inventory_size == size].sort_values("pack_size")
+        x = d.pack_size.values + offsets.get(size, 0)
+        y = 100 * d.G_info_median.values
+        col = FIG_COLORS.get(size, "#6250d6")
+        many = d.n_instances.max() > 1
+        if many:   # 재고 1,000개의 p05~p95 (띠 대신 막대: 겹쳐도 읽힌다)
+            ax.vlines(x, 100 * d.G_info_p05, 100 * d.G_info_p95, color=col, lw=2.2, alpha=0.35,
+                      zorder=2, capstyle="round")
+        ax.plot(x, y, color=col, lw=2.6 if size == 64 else 2.0, zorder=3)
+        ax.scatter(x, y, s=46, marker=FIG_MARKERS.get(size, "o"), color=col,
+                   edgecolor=SURF, linewidth=1.8, zorder=4)
+        for xi, (ps, yi) in zip(x, zip(d.pack_size, y)):
+            P, U = size // ps, size % ps
+            tag = f"{P}p" + (f"+{U}u" if U else "")
+            dy = tag_dy.get(size, 8)
+            dx, ha = (5, "left") if size == 86 else (0, "center")   # 86셀 라벨은 오른쪽으로 비켜서
+            ax.annotate(tag, (xi, yi), xytext=(dx, dy), textcoords="offset points",
+                        ha=ha, va="bottom" if dy > 0 else "top", fontsize=6.8,
+                        color=MUTED, zorder=5)
+        label = (f"{size}-cell inventories (median of {d.n_instances.max()})" if many
+                 else f"all {size} cells (1 inventory)")
+        last_x, last_y = x[-1], y[-1]
+        ax.annotate(f"{size}", (last_x, last_y), xytext=(10, 0), textcoords="offset points",
+                    va="center", fontsize=9, fontweight="bold", color=INK)
+        ax.plot([], [], color=col, lw=2.2, marker=FIG_MARKERS.get(size, "o"), label=label)
+
+    ax.axhline(10, color=MUTED, lw=1, ls=(0, (3, 3)), zorder=0)
+    ax.text(3.45, 11.2, "G1 criterion: p05 > 10% (judged on 64-cell)", fontsize=7.5, color=MUTED)
+    ax.set_xticks(sorted(g.pack_size.unique()))
+    ax.set_xlim(3.2, 17.4)
+    ax.set_ylim(0, max(80, 100 * g.G_info_p95.max() + 14))
+    ax.set_xlabel("pack size (cells in series)", color=MUTED)
+    ax.set_ylabel("G_info: gain of full future information (%)", color=MUTED)
+    ax.grid(axis="y", color=GRID, lw=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#c9c8c3")
+    ax.tick_params(colors=MUTED, labelsize=9)
+    fig.text(0.075, 0.975, f"Figure B. Value of future information vs pack size (NMC, EOL {eol}%)",
+             fontsize=11, color=INK, fontweight="bold", ha="left", va="top")
+    fig.text(0.075, 0.925, "Point labels: packs (p) + unused cells (u). Bars: p05-p95 over 1,000 random "
+             "inventories.\nGain grows with pack size while packs stay numerous; few packs pull it down, "
+             "unused cells push it up.", fontsize=7.3, color=MUTED, ha="left", va="top", linespacing=1.4)
+    ax.legend(frameon=False, fontsize=7.8, loc="upper left", labelcolor=INK)
+    fig.subplots_adjust(left=0.085, right=0.95, top=0.85, bottom=0.11)
+    fig.savefig(out_path or OUT / "figure_b.png", facecolor=SURF)
     plt.close(fig)
 
 
