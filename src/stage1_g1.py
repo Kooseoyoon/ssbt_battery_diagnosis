@@ -49,7 +49,9 @@ N_DIAG = 10                        # Current와 V_O(10)의 진단량
 SEEDVAR_SEEDS = (0, 1, 2, 3, 4)    # 7단계: 86셀만 탐색 시드 5개
 VARIANTS = ("raw", "monotone", "excl")   # 주 결과 raw, 민감도 ① 단조 곡선 ② C_full_excl
 
-OUT = RESULTS_DIR / "stage1"
+# 결과 폴더. Colab에서는 세션이 끊기면 임시 공간이 사라지므로
+# SSBT_RESULTS_DIR 를 Google Drive 폴더로 지정해 과제마다 Drive에 저장한다.
+OUT = Path(os.environ.get("SSBT_RESULTS_DIR", RESULTS_DIR)) / "stage1"
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "search.yaml"
 
 
@@ -406,7 +408,12 @@ def main():
     ap.add_argument("--eol", type=int, nargs="*", default=list(EOL_PCTS))
     ap.add_argument("--n-instances", type=int, default=N_INSTANCES)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument("--shard", default="0/1",
+                    help="i/k: 과제 목록을 k조각으로 나눠 i번째만 계산 (예: 노트북 0/2, Colab 1/2)")
     a = ap.parse_args()
+    shard_i, shard_k = (int(x) for x in a.shard.split("/"))
+    if not 0 <= shard_i < shard_k:
+        raise SystemExit("--shard 는 0/2, 1/2 처럼 i/k (0 <= i < k)")
 
     if a.step == "finalize":
         finalize(a.variant)
@@ -426,6 +433,9 @@ def main():
         rows = np.arange(C.shape[0])
         tasks = [(C.shape[0], 0, rows, p, e, (None if ss == 0 else ss))
                  for ss in SEEDVAR_SEEDS for e in a.eol for p in a.pack]
+    if shard_k > 1:   # 과제 순서가 고정이라 두 컴퓨터가 서로 겹치지 않는 조각을 맡는다
+        tasks = [t for i, t in enumerate(tasks) if i % shard_k == shard_i]
+        print(f"조각 {shard_i}/{shard_k}: 과제 {len(tasks)}개를 맡음")
     run_tasks(tasks, a.variant, a.workers)
 
 
