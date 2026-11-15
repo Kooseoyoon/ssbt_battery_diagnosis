@@ -212,13 +212,18 @@ def run_task(size, seed, rows, pack_size, eol, search_seed=None):
                         "n_i": n, **lr})
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        path, rows=rows, current=current,
-        cand10=np.stack([s.labels for s in r10["res"].starts]),
-        cand0=np.stack([s.labels for s in r0["res"].starts]),
-        kinds10=np.array([s.kind for s in r10["res"].starts]),
-        kinds0=np.array([s.kind for s in r0["res"].starts]),
-        row=json.dumps(row), log=json.dumps(log))
+    # 임시 파일에 다 쓴 뒤 이름을 바꾼다. 이름 바꾸기는 한 번에 끝나므로, 저장 중에 강제 종료돼도
+    # '온전한 파일' 아니면 '파일 없음'만 남는다 (반쯤 써진 파일을 '끝난 과제'로 착각하지 않게).
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as fh:
+        np.savez_compressed(
+            fh, rows=rows, current=current,
+            cand10=np.stack([s.labels for s in r10["res"].starts]),
+            cand0=np.stack([s.labels for s in r0["res"].starts]),
+            kinds10=np.array([s.kind for s in r10["res"].starts]),
+            kinds0=np.array([s.kind for s in r0["res"].starts]),
+            row=json.dumps(row), log=json.dumps(log))
+    os.replace(tmp, path)
     return str(path), row["seconds"]
 
 

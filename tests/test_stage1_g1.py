@@ -71,3 +71,24 @@ def test_finalize_takes_the_best_candidate(tmp_path, monkeypatch):
           for f in sorted((tmp_path / "assignments" / "raw").glob("*.npz"))]
     assert inst.V_O10.iloc[0] == pytest.approx(max(v0))   # 두 시드 중 더 좋은 쪽으로 갱신
     assert inst.G_info.iloc[0] >= 0
+
+
+def test_interrupted_save_leaves_no_result_file(tmp_path, monkeypatch):
+    """저장 도중 멈추면(여기서는 오류로 흉내) 결과 파일이 생기지 않아, 다시 실행하면 그 과제를 새로 계산한다."""
+    monkeypatch.setattr(G, "OUT", tmp_path)
+    G._init_worker("raw")
+    G._G["cfg"] = S.SearchConfig(sa_enabled=False, n_random_starts=2)
+    real = np.savez_compressed
+
+    def broken(fh, **arrays):
+        fh.write(b"PK\x03\x04 half written")             # 반쯤 쓰다가
+        raise KeyboardInterrupt                           # 강제 종료
+
+    monkeypatch.setattr(np, "savez_compressed", broken)
+    rows = np.arange(0, 86, 6)[:12]
+    with pytest.raises(KeyboardInterrupt):
+        G.run_task(12, 0, rows, 4, 60)
+    assert not G.task_path("raw", 12, 0, 4, 60).exists()   # '끝난 과제'로 착각할 파일이 없다
+    monkeypatch.setattr(np, "savez_compressed", real)
+    path, sec = G.run_task(12, 0, rows, 4, 60)             # 다시 실행하면 새로 계산
+    assert sec > 0 and np.load(path)["row"]
