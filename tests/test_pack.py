@@ -281,3 +281,17 @@ def test_objective_for_matches_labels_value_on_a_subset():
     obj = sc.objective_for(cells)
     via_obj = sum(obj(p) for p in P.packs_from_labels(labels))
     assert via_obj == pytest.approx(P.labels_value(C, labels, 10, THR, cells))
+
+
+def test_objective_for_cache_returns_the_same_values():
+    """캐시는 속도만 바꾸고 값은 바꾸지 않는다. 상한을 넘어 비워져도 마찬가지."""
+    C = toy(seed=8, n_cells=12)
+    sc = P.PackScorer(C, 0, THR)
+    cells = np.array([0, 2, 3, 5, 6, 7, 9, 11])
+    obj = sc.objective_for(cells, max_cache=3)
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        pos = rng.choice(8, size=4, replace=False)
+        assert obj(pos) == sc.pack(cells[pos])
+        assert obj(pos[::-1]) == sc.pack(cells[pos])     # 순서가 달라도 같은 팩
+    assert len(obj.cache) <= 3
