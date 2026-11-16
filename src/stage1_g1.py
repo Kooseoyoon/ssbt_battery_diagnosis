@@ -1,0 +1,494 @@
+"""
+Stage 1 - 미래 정보 가치 G1 본 계산 (명세서 4절 4~7단계, 5절 출력, 9가지 변경 4·7·9번)
+
+무엇을 재나
+    같은 재고에서 세 가지로 묶어 팩 성능 합 V를 비교한다.
+      V_Current : 모든 셀 n=10, 사이클 6 용량 큰 순으로 묶음 (현재 산업 방식, 탐색 없음)
+      V_O(10)   : 모든 셀 n=10, 진짜 미래를 알고 탐색한 최고 (시작점에 Current 포함 -> G_info >= 0)
+      V_O(0)    : 모든 셀 n=0,  진짜 미래를 알고 탐색한 최고
+    G_info  = (V_O(10) - V_Current) / V_Current   <- 이 연구가 주장하는 값
+    G_total = (V_O(0)  - V_Current) / V_Current
+
+미사용 셀 (9가지 변경 7번)
+    재고가 팩 크기로 나눠떨어지지 않으면 남는 셀은 '미사용'. 어느 셀을 안 쓸지는 방식마다 스스로 정한다
+    (Current: 사이클 6 용량이 낮은 셀 / Oracle: 탐색이 고름). 세 방식 모두 같은 재고에서 출발한다.
+
+실행 단계 (저장소 맨 위 폴더에서)
+    python src/stage1_g1.py run --inv 64 --eol 60 --workers 4      # 본 계산 (중단해도 다시 실행하면 이어서 함)
+    python src/stage1_g1.py seedvar --workers 4                    # 86셀 탐색 시드 변동 (7단계)
+    python src/stage1_g1.py finalize                               # 기준선 갱신 -> CSV, Figure B (6단계, 5절)
+
+    시험 실행: python src/stage1_g1.py run --inv 64 --eol 60 --n-instances 3 --workers 2
+"""
+from __future__ import annotations
+
+import argparse
+import multiprocessing
+import hashlib
+import json
+import os
+import subprocess
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from config import PROCESSED_DIR, RESULTS_DIR
+from common import pack as P
+from common import search as S
+
+NOMINAL_AH = 2.4
+EOL_PCTS = (55, 60, 65)
+PACK_SIZES = (4, 8, 12, 16)
+INVENTORY_SIZES = (32, 64, 86)
+N_INSTANCES = 1000                 # 32셀, 64셀 각각 (시드 0~999). 86셀은 1개
+N_DIAG = 10                        # Current와 V_O(10)의 진단량
+SEEDVAR_SEEDS = (0, 1, 2, 3, 4)    # 7단계: 86셀만 탐색 시드 5개
+VARIANTS = ("raw", "monotone", "excl")   # 주 결과 raw, 민감도 ① 단조 곡선 ② C_full_excl
+
+# 결과 폴더. Colab에서는 세션이 끊기면 임시 공간이 사라지므로
+# SSBT_RESULTS_DIR 를 Google Drive 폴더로 지정해 과제마다 Drive에 저장한다.
+OUT = Path(os.environ.get("SSBT_RESULTS_DIR", RESULTS_DIR)) / "stage1"
+CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "search.yaml"
+
+
+# ============================================================ 데이터
+
+def load_curves(variant="raw"):
+    """(C, cycles, cell_ids). variant: raw / monotone(누적 최솟값) / excl(C_full_excl)."""
+    name = "C_full_excl.npz" if variant == "excl" else "C_full.npz"
+    d = np.load(PROCESSED_DIR / name)
+    C, cycles, ids = d["C_full"].astype(float), d["cycles"], d["cell_ids"]
+    if variant == "monotone":
+        C = C.copy()
+        for r in range(C.shape[0]):
+            ok = np.isfinite(C[r])
+            C[r, ok] = np.minimum.accumulate(C[r, ok])
+    elif variant not in ("raw", "excl"):
+        raise ValueError(f"unknown variant {variant}")
+    return C, cycles, ids
+
+
+def thr_of(eol_pct):
+    return NOMINAL_AH * eol_pct / 100.0
+
+
+def t_eol_from_C(C, cycles, thr):
+    """셀별로 처음 thr 아래로 내려간 사이클. 끝까지 안 내려가면 +inf.
+    검열 셀을 -1로 두면 sorted_start가 '가장 나쁜 셀'로 착각해 미사용으로 밀어낸다(형 README 4번)."""
+    out = np.full(C.shape[0], np.inf)
+    for i in range(C.shape[0]):
+        below = np.flatnonzero(C[i] < thr)
+        if below.size:
+            out[i] = cycles[below[0]]
+    return out
+
+
+def cycle6_column(cycles):
+    """사이클 6의 열 번호. 변환은 pack.py 함수로만 한다 (사이클 6 = 진단 5사이클이 지난 뒤의 측정)."""
+    j = P.future_measurement_idx(5)
+    if int(cycles[j]) != 6:
+        raise ValueError(f"column {j} is cycle {cycles[j]}, expected 6")
+    return j
+
+
+# ============================================================ 재고 인스턴스 (4단계)
+
+def make_instances(n_cells_total, n_instances=N_INSTANCES):
+    """[(inventory_size, subset_seed, rows)] - 시드마다 고정된 부분집합. 86셀은 전부 1개."""
+    inst = []
+    for size in INVENTORY_SIZES:
+        if size >= n_cells_total:
+            inst.append((n_cells_total, 0, np.arange(n_cells_total)))
+            continue
+        for seed in range(n_instances):
+            rng = np.random.default_rng([size, seed])
+            inst.append((size, seed, np.sort(rng.choice(n_cells_total, size=size, replace=False))))
+    return inst
+
+
+def save_instance_list(instances, ids):
+    OUT.mkdir(parents=True, exist_ok=True)
+    rows = [dict(inventory_size=s, subset_seed=k, cell_ids=json.dumps(ids[r].tolist()))
+            for s, k, r in instances]
+    pd.DataFrame(rows).to_csv(OUT / "instances.csv", index=False)
+
+
+# ============================================================ 한 과제 = (재고, 팩 크기, EOL)
+
+_G = {}   # 작업 프로세스마다 한 번 불러 두는 데이터
+
+
+def _init_worker(variant):
+    C, cycles, ids = load_curves(variant)
+    _G.update(C=C, cycles=cycles, ids=ids, variant=variant,
+              cfg=S.SearchConfig.from_yaml(CONFIG_PATH), scorers={}, teol={})
+
+
+def _scorer(n, thr):
+    key = (n, thr)
+    if key not in _G["scorers"]:
+        _G["scorers"][key] = P.PackScorer(_G["C"], n, thr)
+    return _G["scorers"][key]
+
+
+def _teol(thr):
+    if thr not in _G["teol"]:
+        _G["teol"][thr] = t_eol_from_C(_G["C"], _G["cycles"], thr)
+    return _G["teol"][thr]
+
+
+def _pack_values(obj, labels):
+    return [obj(p) for p in P.packs_from_labels(labels)]
+
+
+def _starts(rows, pack_size, teol, rng, n_random, current=None):
+    starts = []
+    if current is not None:
+        starts.append(("current", current))
+    starts.append(("sorted_teol", S.sorted_start(teol[rows], pack_size)))
+    starts += [(f"random_{k:02d}", S.random_start(len(rows), pack_size, rng))
+               for k in range(n_random)]
+    return starts
+
+
+def task_path(variant, size, seed, pack_size, eol, search_seed=None):
+    tag = "" if search_seed is None else f"_ss{search_seed}"
+    return OUT / "assignments" / variant / f"inv{size}_s{seed:04d}_p{pack_size}_e{eol}{tag}.npz"
+
+
+def run_task(size, seed, rows, pack_size, eol, search_seed=None):
+    """한 조건을 계산하고 파일 하나로 저장. 이미 있으면 건너뜀(이어서 실행)."""
+    path = task_path(_G["variant"], size, seed, pack_size, eol, search_seed)
+    if path.exists():
+        return str(path), 0.0
+    t0 = time.perf_counter()
+    C, cycles, ids, cfg = _G["C"], _G["cycles"], _G["ids"], _G["cfg"]
+    if search_seed is not None:
+        cfg = S.SearchConfig(**{**cfg.to_dict(), "seed": int(search_seed)})
+    thr = thr_of(eol)
+    teol = _teol(thr)
+    rows = np.asarray(rows, dtype=int)
+
+    out = {}
+    # --- Current (9가지 변경 4번): 사이클 6 용량 상위 P*n개를 차례로, 나머지 미사용
+    obj10 = _scorer(N_DIAG, thr).objective_for(rows)
+    current = S.sorted_start(C[rows, cycle6_column(cycles)], pack_size)
+    pv_cur = _pack_values(obj10, current)
+
+    # --- Oracle: n=10 (Current 포함), n=0
+    for n in (N_DIAG, 0):
+        obj = _scorer(n, thr).objective_for(rows)
+        rng = np.random.default_rng([size, seed, pack_size, eol, n, cfg.seed])
+        starts = _starts(rows, pack_size, teol, rng, cfg.n_random_starts,
+                         current=current if n == N_DIAG else None)
+        res = S.best_of(starts, obj, pack_size, cfg)
+        out[n] = dict(res=res, pv=_pack_values(obj, res.labels),
+                      ub=_scorer(n, thr).upper_bound(rows, pack_size))
+
+    unused = lambda lab: json.dumps(ids[rows[lab == P.UNUSED]].tolist())
+    r10, r0 = out[N_DIAG], out[0]
+    row = dict(
+        chemistry="NMC", variant=_G["variant"], inventory_size=size, subset_seed=seed,
+        pack_size=pack_size, eol_pct=eol, search_seed=cfg.seed,
+        n_packs=len(rows) // pack_size, n_unused=len(rows) % pack_size,
+        V_Current=float(sum(pv_cur)), V_O10=r10["res"].value, V_O0=r0["res"].value,
+        UB10=r10["ub"], UB0=r0["ub"],
+        worst_Current=float(min(pv_cur)), worst_O10=float(min(r10["pv"])),
+        worst_O0=float(min(r0["pv"])),
+        best_start_O10=r10["res"].best_kind, best_start_O0=r0["res"].best_kind,
+        unused_Current=unused(current), unused_O10=unused(r10["res"].labels),
+        unused_O0=unused(r0["res"].labels),
+        seconds=time.perf_counter() - t0,
+    )
+    log = []
+    for n in (N_DIAG, 0):
+        for lr in out[n]["res"].log_rows():
+            log.append({**{k: row[k] for k in ("variant", "inventory_size", "subset_seed",
+                                              "pack_size", "eol_pct", "search_seed")},
+                        "n_i": n, **lr})
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # 임시 파일에 다 쓴 뒤 이름을 바꾼다. 이름 바꾸기는 한 번에 끝나므로, 저장 중에 강제 종료돼도
+    # '온전한 파일' 아니면 '파일 없음'만 남는다 (반쯤 써진 파일을 '끝난 과제'로 착각하지 않게).
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as fh:
+        np.savez_compressed(
+            fh, rows=rows, current=current,
+            cand10=np.stack([s.labels for s in r10["res"].starts]),
+            cand0=np.stack([s.labels for s in r0["res"].starts]),
+            kinds10=np.array([s.kind for s in r10["res"].starts]),
+            kinds0=np.array([s.kind for s in r0["res"].starts]),
+            row=json.dumps(row), log=json.dumps(log))
+    os.replace(tmp, path)
+    return str(path), row["seconds"]
+
+
+def _run_task_star(args):
+    return run_task(*args)
+
+
+def run_tasks(tasks, variant, workers):
+    todo = [t for t in tasks if not task_path(variant, t[0], t[1], t[3], t[4],
+                                              t[5] if len(t) > 5 else None).exists()]
+    print(f"[{variant}] 전체 {len(tasks)}개 중 남은 과제 {len(todo)}개, 작업자 {workers}개", flush=True)
+    if not todo:
+        return
+    t0 = time.perf_counter()
+    done = 0
+    # Windows와 같은 방식(spawn)으로 작업 프로세스를 만든다: 어느 컴퓨터에서나 같은 동작
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(variant,),
+                             mp_context=multiprocessing.get_context("spawn")) as ex:
+        futs = [ex.submit(_run_task_star, t) for t in todo]
+        for f in as_completed(futs):
+            f.result()                        # 오류가 나면 여기서 멈춘다
+            done += 1
+            if done % max(1, len(todo) // 50) == 0 or done == len(todo):
+                el = time.perf_counter() - t0
+                eta = el / done * (len(todo) - done)
+                print(f"  {done}/{len(todo)}  경과 {el/60:.1f}분  남은 예상 {eta/60:.1f}분", flush=True)
+
+
+# ============================================================ 6단계: 기준선 갱신
+
+def finalize(variant="raw"):
+    """같은 조건 키의 후보 배정을 모두 모아 다시 채점 -> 최고를 최종 V_O로, G를 일괄 계산."""
+    files = sorted((OUT / "assignments" / variant).glob("*.npz"))
+    if not files:
+        raise SystemExit(f"[{variant}] 결과 파일이 없습니다. 먼저 run 을 실행하세요.")
+    C, cycles, ids = load_curves(variant)
+    scorers = {}
+
+    def sc(n, thr):
+        if (n, thr) not in scorers:
+            scorers[(n, thr)] = P.PackScorer(C, n, thr)
+        return scorers[(n, thr)]
+
+    # 1) 모든 파일을 읽어 조건 키별로 후보 배정을 모은다 (C 행 번호로 바꿔 저장)
+    recs, pool, logs = [], {}, []
+    for f in files:
+        z = np.load(f)
+        row = json.loads(str(z["row"]))
+        rows = z["rows"]
+        key_base = (tuple(rows.tolist()), row["pack_size"], row["eol_pct"])
+        for n, cand in ((N_DIAG, z["cand10"]), (0, z["cand0"])):
+            bucket = pool.setdefault(key_base + (n,), {})
+            for lab in cand:
+                packs = tuple(sorted(tuple(sorted(rows[p].tolist())) for p in P.packs_from_labels(lab)))
+                bucket[packs] = None                       # 같은 배정은 한 번만
+        recs.append((row, key_base))
+        logs += json.loads(str(z["log"]))
+
+    # 2) 키마다 후보 전부를 다시 채점해 최고를 고른다 (실행 순서와 무관)
+    best = {}
+    for key, bucket in pool.items():
+        rows_t, ps, eol, n = key
+        s = sc(n, thr_of(eol))
+        scored = [(sum(s.pack(list(p)) for p in packs), packs) for packs in bucket]
+        v, packs = max(scored, key=lambda x: x[0])
+        best[key] = (v, min(s.pack(list(p)) for p in packs),
+                     json.dumps(sorted(set(ids[list(rows_t)].tolist())
+                                       - set(ids[[c for p in packs for c in p]].tolist()))))
+
+    # 3) 인스턴스 표: 최종 V_O로 G를 다시 계산
+    out_rows = []
+    for row, kb in recs:
+        for n, tag in ((N_DIAG, "O10"), (0, "O0")):
+            v, worst, unused = best[kb + (n,)]
+            row[f"V_{tag}_search"] = row[f"V_{tag}"]
+            row[f"refreshed_{tag}"] = v > row[f"V_{tag}"] + 1e-9
+            row[f"V_{tag}"], row[f"worst_{tag}"], row[f"unused_{tag}"] = v, worst, unused
+        row["G_info"] = (row["V_O10"] - row["V_Current"]) / row["V_Current"]
+        row["G_total"] = (row["V_O0"] - row["V_Current"]) / row["V_Current"]
+        row["UB_gap_O10"] = (row["UB10"] - row["V_O10"]) / row["UB10"]
+        row["UB_gap_O0"] = (row["UB0"] - row["V_O0"]) / row["UB0"]
+        row["worst_gain_O10"] = row["worst_O10"] - row["worst_Current"]
+        out_rows.append(row)
+    inst = pd.DataFrame(out_rows)
+    main = inst[inst.search_seed == S.SearchConfig.from_yaml(CONFIG_PATH).seed]
+    seedvar = inst[inst.inventory_size == C.shape[0]]
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    sfx = "" if variant == "raw" else f"_{variant}"
+    main.to_csv(OUT / f"g1_instances{sfx}.csv", index=False)
+    pd.DataFrame(logs).to_csv(OUT / f"search_log{sfx}.csv", index=False)
+    gate = make_gate(main, seedvar)
+    gate.to_csv(OUT / f"g1_gate{sfx}.csv", index=False)
+    if variant == "raw":
+        figure_b(gate)
+    write_repro(variant, sfx)
+    print(f"[{variant}] 인스턴스 {len(main)}줄, 기준선이 갱신된 경우 "
+          f"O10 {int(main.refreshed_O10.sum())} / O0 {int(main.refreshed_O0.sum())}")
+    return main, gate
+
+
+def make_gate(inst, seedvar):
+    q = lambda s, p: float(np.quantile(s, p))
+    rows = []
+    for (chem, var, size, ps, eol), g in inst.groupby(
+            ["chemistry", "variant", "inventory_size", "pack_size", "eol_pct"]):
+        r = dict(chemistry=chem, variant=var, inventory_size=size, pack_size=ps, eol_pct=eol,
+                 n_instances=len(g))
+        for col in ("G_info", "G_total"):
+            r[f"{col}_mean"], r[f"{col}_p05"] = g[col].mean(), q(g[col], 0.05)
+            r[f"{col}_median"], r[f"{col}_p95"] = q(g[col], 0.5), q(g[col], 0.95)
+        r["worst_gain_mean"], r["worst_gain_p05"] = g.worst_gain_O10.mean(), q(g.worst_gain_O10, 0.05)
+        r["UB_gap_O10_mean"], r["UB_gap_O10_max"] = g.UB_gap_O10.mean(), g.UB_gap_O10.max()
+        r["UB_gap_O0_mean"], r["UB_gap_O0_max"] = g.UB_gap_O0.mean(), g.UB_gap_O0.max()
+        sv = seedvar[(seedvar.pack_size == ps) & (seedvar.eol_pct == eol) & (seedvar.variant == var)]
+        if size == seedvar.inventory_size.max() and len(sv) > 1:
+            r["seedvar_n"] = len(sv)
+            r["seedvar_V_O10_min"], r["seedvar_V_O10_max"] = sv.V_O10_search.min(), sv.V_O10_search.max()
+            r["seedvar_G_info_min"] = ((sv.V_O10_search - sv.V_Current) / sv.V_Current).min()
+            r["seedvar_G_info_max"] = ((sv.V_O10_search - sv.V_Current) / sv.V_Current).max()
+        r["passes_g1"] = (bool(r["G_info_p05"] > 0.10)
+                          if (eol == 60 and size == 64 and var == "raw") else None)
+        rows.append(r)
+    return pd.DataFrame(rows)
+
+
+FIG_COLORS = {32: "#eb6834", 64: "#2a78d6", 86: "#1baf7a"}   # 색약 검사 통과 (dataviz 검사기)
+FIG_MARKERS = {32: "s", 64: "o", 86: "D"}
+
+
+def figure_b(gate, eol=60, out_path=None):
+    """Figure B: 팩 크기별 G_info, 재고 크기 32/64/86셀을 한 그림에.
+
+    점마다 (팩 수, 미사용 셀 수)를 적어 '팩 크기 효과'와 '팩 수·미사용 효과'를 함께 읽게 한다.
+    32·64셀은 재고 1,000개의 중앙값과 p05~p95 띠, 86셀은 데이터 전체 1개.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    g = gate[(gate.eol_pct == eol) & (gate.variant == "raw")]
+    if g.empty:
+        print(f"Figure B: EOL {eol}% 결과가 없어 건너뜀")
+        return
+    INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e7e6e2", "#fcfcfb"
+    fig, ax = plt.subplots(figsize=(7.6, 4.9), dpi=200, facecolor=SURF)
+    ax.set_facecolor(SURF)
+    sizes = sorted(g.inventory_size.unique())
+    offsets = {32: -0.45, 64: 0.0, 86: 0.45}          # 겹치지 않게 살짝 옆으로
+    tag_dy = {32: -9, 64: 8, 86: 8}                    # 32셀 라벨은 점 아래, 나머지는 위
+    for size in sizes:
+        d = g[g.inventory_size == size].sort_values("pack_size")
+        x = d.pack_size.values + offsets.get(size, 0)
+        y = 100 * d.G_info_median.values
+        col = FIG_COLORS.get(size, "#6250d6")
+        many = d.n_instances.max() > 1
+        if many:   # 재고 1,000개의 p05~p95 (띠 대신 막대: 겹쳐도 읽힌다)
+            ax.vlines(x, 100 * d.G_info_p05, 100 * d.G_info_p95, color=col, lw=2.2, alpha=0.35,
+                      zorder=2, capstyle="round")
+        ax.plot(x, y, color=col, lw=2.6 if size == 64 else 2.0, zorder=3)
+        ax.scatter(x, y, s=46, marker=FIG_MARKERS.get(size, "o"), color=col,
+                   edgecolor=SURF, linewidth=1.8, zorder=4)
+        for xi, (ps, yi) in zip(x, zip(d.pack_size, y)):
+            P, U = size // ps, size % ps
+            tag = f"{P}p" + (f"+{U}u" if U else "")
+            dy = tag_dy.get(size, 8)
+            dx, ha = (5, "left") if size == 86 else (0, "center")   # 86셀 라벨은 오른쪽으로 비켜서
+            ax.annotate(tag, (xi, yi), xytext=(dx, dy), textcoords="offset points",
+                        ha=ha, va="bottom" if dy > 0 else "top", fontsize=6.8,
+                        color=MUTED, zorder=5)
+        label = (f"{size}-cell inventories (median of {d.n_instances.max()})" if many
+                 else f"all {size} cells (1 inventory)")
+        last_x, last_y = x[-1], y[-1]
+        ax.annotate(f"{size}", (last_x, last_y), xytext=(10, 0), textcoords="offset points",
+                    va="center", fontsize=9, fontweight="bold", color=INK)
+        ax.plot([], [], color=col, lw=2.2, marker=FIG_MARKERS.get(size, "o"), label=label)
+
+    ax.axhline(10, color=MUTED, lw=1, ls=(0, (3, 3)), zorder=0)
+    ax.text(3.45, 11.2, "G1 criterion: p05 > 10% (judged on 64-cell)", fontsize=7.5, color=MUTED)
+    ax.set_xticks(sorted(g.pack_size.unique()))
+    ax.set_xlim(3.2, 17.4)
+    ax.set_ylim(0, max(80, 100 * g.G_info_p95.max() + 14))
+    ax.set_xlabel("pack size (cells in series)", color=MUTED)
+    ax.set_ylabel("G_info: gain of full future information (%)", color=MUTED)
+    ax.grid(axis="y", color=GRID, lw=0.8)
+    ax.set_axisbelow(True)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#c9c8c3")
+    ax.tick_params(colors=MUTED, labelsize=9)
+    fig.text(0.075, 0.975, f"Figure B. Value of future information vs pack size (NMC, EOL {eol}%)",
+             fontsize=11, color=INK, fontweight="bold", ha="left", va="top")
+    fig.text(0.075, 0.925, "Point labels: packs (p) + unused cells (u). Bars: p05-p95 over 1,000 random "
+             "inventories.\nGain grows with pack size while packs stay numerous; few packs pull it down, "
+             "unused cells push it up.", fontsize=7.3, color=MUTED, ha="left", va="top", linespacing=1.4)
+    ax.legend(frameon=False, fontsize=7.8, loc="upper left", labelcolor=INK)
+    fig.subplots_adjust(left=0.085, right=0.95, top=0.85, bottom=0.11)
+    fig.savefig(out_path or OUT / "figure_b.png", facecolor=SURF)
+    plt.close(fig)
+
+
+def write_repro(variant, sfx):
+    def sha(p):
+        return hashlib.sha256(p.read_bytes()).hexdigest()[:12] if p.exists() else None
+    try:
+        commit = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        dirty = bool(subprocess.check_output(["git", "status", "--porcelain", "src", "configs"],
+                                             text=True).strip())
+    except Exception:
+        commit, dirty = "unknown", None
+    info = dict(variant=variant, code_commit=commit, code_dirty=dirty,
+                data_sha={n: sha(PROCESSED_DIR / n) for n in ("C_full.npz", "C_full_excl.npz")},
+                search_config=S.SearchConfig.from_yaml(CONFIG_PATH).to_dict(),
+                eol_thresholds_ah={e: thr_of(e) for e in EOL_PCTS},
+                curve_handling={"raw": "측정값 그대로", "monotone": "누적 최솟값 단조 곡선",
+                                "excl": "C_full_excl (저자 제외점 보간)"}[variant],
+                instances=f"32/64셀 시드 0~{N_INSTANCES - 1}, 86셀 1개 (instances.csv)",
+                unused_rule="방식마다 미사용 셀을 스스로 정함 (9가지 변경 7번)",
+                written_at=datetime.now().isoformat(timespec="seconds"))
+    (OUT / f"g1_repro{sfx}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2),
+                                             encoding="utf-8")
+
+
+# ============================================================ 명령줄
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("step", choices=["run", "seedvar", "finalize"])
+    ap.add_argument("--variant", choices=VARIANTS, default="raw")
+    ap.add_argument("--inv", type=int, nargs="*", default=list(INVENTORY_SIZES))
+    ap.add_argument("--pack", type=int, nargs="*", default=list(PACK_SIZES))
+    ap.add_argument("--eol", type=int, nargs="*", default=list(EOL_PCTS))
+    ap.add_argument("--n-instances", type=int, default=N_INSTANCES)
+    ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
+    ap.add_argument("--shard", default="0/1",
+                    help="i/k: 과제 목록을 k조각으로 나눠 i번째만 계산 (예: 노트북 0/2, Colab 1/2)")
+    a = ap.parse_args()
+    shard_i, shard_k = (int(x) for x in a.shard.split("/"))
+    if not 0 <= shard_i < shard_k:
+        raise SystemExit("--shard 는 0/2, 1/2 처럼 i/k (0 <= i < k)")
+
+    if a.step == "finalize":
+        finalize(a.variant)
+        return
+
+    C, cycles, ids = load_curves(a.variant)
+    for e in a.eol:   # 2절: 미도달 셀 수를 먼저 확인
+        n_cens = int(np.isinf(t_eol_from_C(C, cycles, thr_of(e))).sum())
+        print(f"EOL {e}% ({thr_of(e):.2f} Ah): 미도달 셀 {n_cens}개")
+
+    if a.step == "run":
+        inst = make_instances(C.shape[0], a.n_instances)
+        save_instance_list(inst, ids)
+        inst = [x for x in inst if x[0] in a.inv]
+        tasks = [(s, k, r, p, e) for s, k, r in inst for e in a.eol for p in a.pack]
+    else:   # seedvar: 86셀, 탐색 시드 5개 (시드 0은 run 결과와 같은 파일)
+        rows = np.arange(C.shape[0])
+        tasks = [(C.shape[0], 0, rows, p, e, (None if ss == 0 else ss))
+                 for ss in SEEDVAR_SEEDS for e in a.eol for p in a.pack]
+    if shard_k > 1:   # 과제 순서가 고정이라 두 컴퓨터가 서로 겹치지 않는 조각을 맡는다
+        tasks = [t for i, t in enumerate(tasks) if i % shard_k == shard_i]
+        print(f"조각 {shard_i}/{shard_k}: 과제 {len(tasks)}개를 맡음")
+    run_tasks(tasks, a.variant, a.workers)
+
+
+if __name__ == "__main__":
+    main()

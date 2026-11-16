@@ -1,0 +1,27 @@
+# Fixed search settings. Chosen by stage1_exhaustive.py and then left alone,
+# so every stage searches the same way.
+
+# how many random starts the CALLER should build; search.py only
+# runs the starts it is handed, it does not create them
+n_random_starts: 20
+seed: 0
+max_sweeps: 100
+tol: 1.0e-9
+
+# 11/15 결정: SA 끔 (교환 탐색 + 다중 시작만)
+#  - 전수 검사 240문제(12·13·16·18셀, n=0/10, 각 30): 교환만도 놓친 폭 0% (SA 2k/5k/20k도 0%)
+#  - 86셀 12조건 x n 2개 = 24경우: SA 20k가 더 좋았던 것 4경우, 최대 +0.105% / 시간은 약 2배
+#  - 규칙(놓친 폭 1% 이내 중 가장 빠른 것)에 따라 swap_only. 근거: docs/stage1_sa_decision.md
+sa_enabled: false
+sa_iters: 20000
+sa_t0: null              # null -> set from the swap sizes this problem offers
+sa_t0_quantile: 0.5
+sa_t0_samples: 400
+sa_cooling: 0.9995        # ignored while sa_end_ratio is set
+sa_end_ratio: 1.0e-4     # last temperature / first; cooling = sa_end_ratio ** (1 / sa_iters)
+sa_polish: true
+
+# Leave null for a flat iteration count. If the exhaustive check shows the
+# problems with unused cells falling behind, set this instead so the budget
+# grows with the neighbourhood (decision for issue 3).
+sa_iters_per_neighbour: null
