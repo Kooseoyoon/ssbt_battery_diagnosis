@@ -1,0 +1,35 @@
+{
+  "dataset": "uconn",
+  "chemistry": "LFP",
+  "variant": "monotone",
+  "code_commit": "dd344a2",
+  "code_dirty": true,
+  "data_sha": {
+    "uconn/C_uconn.npz": "31d877fd2720"
+  },
+  "search_config": {
+    "n_random_starts": 20,
+    "seed": 0,
+    "max_sweeps": 100,
+    "tol": 1e-09,
+    "sa_enabled": false,
+    "sa_iters": 20000,
+    "sa_t0": null,
+    "sa_t0_quantile": 0.5,
+    "sa_t0_samples": 400,
+    "sa_cooling": 0.9995,
+    "sa_end_ratio": 0.0001,
+    "sa_polish": true,
+    "sa_iters_per_neighbour": null
+  },
+  "nominal_ah": 1.2,
+  "eol_thresholds_ah": {
+    "55": 0.66,
+    "60": 0.72,
+    "65": 0.78
+  },
+  "curve_handling": "누적 최솟값 단조 곡선",
+  "instances": "24셀 전체 1개 (instances_lfp.csv), 규칙 docs/stage1_lfp_rules.md",
+  "unused_rule": "방식마다 미사용 셀을 스스로 정함 (9가지 변경 7번)",
+  "written_at": "2026-11-17T13:21:40"
+}

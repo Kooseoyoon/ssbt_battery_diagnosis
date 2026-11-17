@@ -1,0 +1,33 @@
+{
+  "variant": "raw",
+  "code_commit": "1527969",
+  "code_dirty": true,
+  "data_sha": {
+    "C_full.npz": "626ad8f0f9d9",
+    "C_full_excl.npz": "1ba8c622c334"
+  },
+  "search_config": {
+    "n_random_starts": 20,
+    "seed": 0,
+    "max_sweeps": 100,
+    "tol": 1e-09,
+    "sa_enabled": false,
+    "sa_iters": 20000,
+    "sa_t0": null,
+    "sa_t0_quantile": 0.5,
+    "sa_t0_samples": 400,
+    "sa_cooling": 0.9995,
+    "sa_end_ratio": 0.0001,
+    "sa_polish": true,
+    "sa_iters_per_neighbour": null
+  },
+  "eol_thresholds_ah": {
+    "55": 1.32,
+    "60": 1.44,
+    "65": 1.56
+  },
+  "curve_handling": "측정값 그대로",
+  "instances": "32/64셀 시드 0~999, 86셀 1개 (instances.csv)",
+  "unused_rule": "방식마다 미사용 셀을 스스로 정함 (9가지 변경 7번)",
+  "written_at": "2026-11-15T21:34:23"
+}
