@@ -19,6 +19,13 @@ Stage 1 - 미래 정보 가치 G1 본 계산 (명세서 4절 4~7단계, 5절 출
     python src/stage1_g1.py finalize                               # 기준선 갱신 -> CSV, Figure B (6단계, 5절)
 
     시험 실행: python src/stage1_g1.py run --inv 64 --eol 60 --n-instances 3 --workers 2
+
+LFP (UConn 2차 수명 24셀, 규칙은 docs/stage1_lfp_rules.md)
+    python src/stage1_g1.py run      --dataset uconn --workers 4
+    python src/stage1_g1.py seedvar  --dataset uconn --workers 4
+    python src/stage1_g1.py finalize --dataset uconn     # -> g1_gate_lfp.csv, figure_b_lfp.png
+    NMC 결과(g1_gate.csv, figure_b.png)는 건드리지 않는다. figure_b_lfp.png 는 g1_gate.csv 가 있으면
+    NMC 3줄 + LFP 1줄, 없으면 LFP만 그린다.
 """
 from __future__ import annotations
 
@@ -40,10 +47,19 @@ from config import PROCESSED_DIR, RESULTS_DIR
 from common import pack as P
 from common import search as S
 
-NOMINAL_AH = 2.4
+NOMINAL_AH = 2.4                   # NMC (Deep Sorting). LFP는 DATASETS["uconn"]
 EOL_PCTS = (55, 60, 65)
 PACK_SIZES = (4, 8, 12, 16)
 INVENTORY_SIZES = (32, 64, 86)
+
+# 데이터셋별 설정. 계산 절차는 같고 데이터·정격·재고·팩 크기·출력 이름만 다르다.
+DATASETS = {
+    "nmc": dict(chemistry="NMC", files={"raw": "C_full.npz", "monotone": "C_full.npz",
+                                        "excl": "C_full_excl.npz"},
+                nominal=NOMINAL_AH, inv=INVENTORY_SIZES, packs=PACK_SIZES, tag=""),
+    "uconn": dict(chemistry="LFP", files={"raw": "uconn/C_uconn.npz", "monotone": "uconn/C_uconn.npz"},
+                  nominal=1.2, inv=(24,), packs=(4, 8, 12), tag="_lfp"),
+}
 N_INSTANCES = 1000                 # 32셀, 64셀 각각 (시드 0~999). 86셀은 1개
 N_DIAG = 10                        # Current와 V_O(10)의 진단량
 SEEDVAR_SEEDS = (0, 1, 2, 3, 4)    # 7단계: 86셀만 탐색 시드 5개
@@ -57,23 +73,32 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "search.yaml"
 
 # ============================================================ 데이터
 
-def load_curves(variant="raw"):
-    """(C, cycles, cell_ids). variant: raw / monotone(누적 최솟값) / excl(C_full_excl)."""
-    name = "C_full_excl.npz" if variant == "excl" else "C_full.npz"
-    d = np.load(PROCESSED_DIR / name)
+def load_curves(variant="raw", dataset="nmc"):
+    """(C, cycles, cell_ids). variant: raw / monotone(누적 최솟값) / excl(C_full_excl, NMC만)."""
+    files = DATASETS[dataset]["files"]
+    if variant not in files:
+        raise ValueError(f"unknown variant {variant} for dataset {dataset}")
+    d = np.load(PROCESSED_DIR / files[variant])
     C, cycles, ids = d["C_full"].astype(float), d["cycles"], d["cell_ids"]
+    if dataset != "nmc" and "nominal_Ah" in d.files:
+        if not np.isclose(float(d["nominal_Ah"]), DATASETS[dataset]["nominal"]):
+            raise ValueError(f"{dataset}: 파일의 정격 {float(d['nominal_Ah'])}Ah가 설정과 다름")
     if variant == "monotone":
         C = C.copy()
         for r in range(C.shape[0]):
             ok = np.isfinite(C[r])
             C[r, ok] = np.minimum.accumulate(C[r, ok])
-    elif variant not in ("raw", "excl"):
-        raise ValueError(f"unknown variant {variant}")
     return C, cycles, ids
 
 
-def thr_of(eol_pct):
-    return NOMINAL_AH * eol_pct / 100.0
+def thr_of(eol_pct, dataset="nmc"):
+    return DATASETS[dataset]["nominal"] * eol_pct / 100.0
+
+
+def run_dir(variant, dataset="nmc"):
+    """과제 파일 폴더. NMC는 예전 그대로(assignments/raw), 다른 데이터셋은 섞이지 않게 따로."""
+    name = variant if dataset == "nmc" else f"{dataset}_{variant}"
+    return OUT / "assignments" / name
 
 
 def t_eol_from_C(C, cycles, thr):
@@ -97,10 +122,10 @@ def cycle6_column(cycles):
 
 # ============================================================ 재고 인스턴스 (4단계)
 
-def make_instances(n_cells_total, n_instances=N_INSTANCES):
-    """[(inventory_size, subset_seed, rows)] - 시드마다 고정된 부분집합. 86셀은 전부 1개."""
+def make_instances(n_cells_total, n_instances=N_INSTANCES, sizes=INVENTORY_SIZES):
+    """[(inventory_size, subset_seed, rows)] - 시드마다 고정된 부분집합. 전체 셀 수 이상이면 전부 1개."""
     inst = []
-    for size in INVENTORY_SIZES:
+    for size in sizes:
         if size >= n_cells_total:
             inst.append((n_cells_total, 0, np.arange(n_cells_total)))
             continue
@@ -110,11 +135,11 @@ def make_instances(n_cells_total, n_instances=N_INSTANCES):
     return inst
 
 
-def save_instance_list(instances, ids):
+def save_instance_list(instances, ids, dataset="nmc"):
     OUT.mkdir(parents=True, exist_ok=True)
     rows = [dict(inventory_size=s, subset_seed=k, cell_ids=json.dumps(ids[r].tolist()))
             for s, k, r in instances]
-    pd.DataFrame(rows).to_csv(OUT / "instances.csv", index=False)
+    pd.DataFrame(rows).to_csv(OUT / f"instances{DATASETS[dataset]['tag']}.csv", index=False)
 
 
 # ============================================================ 한 과제 = (재고, 팩 크기, EOL)
@@ -122,9 +147,9 @@ def save_instance_list(instances, ids):
 _G = {}   # 작업 프로세스마다 한 번 불러 두는 데이터
 
 
-def _init_worker(variant):
-    C, cycles, ids = load_curves(variant)
-    _G.update(C=C, cycles=cycles, ids=ids, variant=variant,
+def _init_worker(variant, dataset="nmc"):
+    C, cycles, ids = load_curves(variant, dataset)
+    _G.update(C=C, cycles=cycles, ids=ids, variant=variant, dataset=dataset,
               cfg=S.SearchConfig.from_yaml(CONFIG_PATH), scorers={}, teol={})
 
 
@@ -155,21 +180,22 @@ def _starts(rows, pack_size, teol, rng, n_random, current=None):
     return starts
 
 
-def task_path(variant, size, seed, pack_size, eol, search_seed=None):
+def task_path(variant, size, seed, pack_size, eol, search_seed=None, dataset="nmc"):
     tag = "" if search_seed is None else f"_ss{search_seed}"
-    return OUT / "assignments" / variant / f"inv{size}_s{seed:04d}_p{pack_size}_e{eol}{tag}.npz"
+    return run_dir(variant, dataset) / f"inv{size}_s{seed:04d}_p{pack_size}_e{eol}{tag}.npz"
 
 
 def run_task(size, seed, rows, pack_size, eol, search_seed=None):
     """한 조건을 계산하고 파일 하나로 저장. 이미 있으면 건너뜀(이어서 실행)."""
-    path = task_path(_G["variant"], size, seed, pack_size, eol, search_seed)
+    dataset = _G.get("dataset", "nmc")
+    path = task_path(_G["variant"], size, seed, pack_size, eol, search_seed, dataset)
     if path.exists():
         return str(path), 0.0
     t0 = time.perf_counter()
     C, cycles, ids, cfg = _G["C"], _G["cycles"], _G["ids"], _G["cfg"]
     if search_seed is not None:
         cfg = S.SearchConfig(**{**cfg.to_dict(), "seed": int(search_seed)})
-    thr = thr_of(eol)
+    thr = thr_of(eol, dataset)
     teol = _teol(thr)
     rows = np.asarray(rows, dtype=int)
 
@@ -192,7 +218,7 @@ def run_task(size, seed, rows, pack_size, eol, search_seed=None):
     unused = lambda lab: json.dumps(ids[rows[lab == P.UNUSED]].tolist())
     r10, r0 = out[N_DIAG], out[0]
     row = dict(
-        chemistry="NMC", variant=_G["variant"], inventory_size=size, subset_seed=seed,
+        chemistry=DATASETS[dataset]["chemistry"], variant=_G["variant"], inventory_size=size, subset_seed=seed,
         pack_size=pack_size, eol_pct=eol, search_seed=cfg.seed,
         n_packs=len(rows) // pack_size, n_unused=len(rows) % pack_size,
         V_Current=float(sum(pv_cur)), V_O10=r10["res"].value, V_O0=r0["res"].value,
@@ -231,16 +257,17 @@ def _run_task_star(args):
     return run_task(*args)
 
 
-def run_tasks(tasks, variant, workers):
+def run_tasks(tasks, variant, workers, dataset="nmc"):
     todo = [t for t in tasks if not task_path(variant, t[0], t[1], t[3], t[4],
-                                              t[5] if len(t) > 5 else None).exists()]
-    print(f"[{variant}] 전체 {len(tasks)}개 중 남은 과제 {len(todo)}개, 작업자 {workers}개", flush=True)
+                                              t[5] if len(t) > 5 else None, dataset).exists()]
+    print(f"[{dataset}/{variant}] 전체 {len(tasks)}개 중 남은 과제 {len(todo)}개, 작업자 {workers}개",
+          flush=True)
     if not todo:
         return
     t0 = time.perf_counter()
     done = 0
     # Windows와 같은 방식(spawn)으로 작업 프로세스를 만든다: 어느 컴퓨터에서나 같은 동작
-    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(variant,),
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker, initargs=(variant, dataset),
                              mp_context=multiprocessing.get_context("spawn")) as ex:
         futs = [ex.submit(_run_task_star, t) for t in todo]
         for f in as_completed(futs):
@@ -254,12 +281,12 @@ def run_tasks(tasks, variant, workers):
 
 # ============================================================ 6단계: 기준선 갱신
 
-def finalize(variant="raw"):
+def finalize(variant="raw", dataset="nmc"):
     """같은 조건 키의 후보 배정을 모두 모아 다시 채점 -> 최고를 최종 V_O로, G를 일괄 계산."""
-    files = sorted((OUT / "assignments" / variant).glob("*.npz"))
+    files = sorted(run_dir(variant, dataset).glob("*.npz"))
     if not files:
-        raise SystemExit(f"[{variant}] 결과 파일이 없습니다. 먼저 run 을 실행하세요.")
-    C, cycles, ids = load_curves(variant)
+        raise SystemExit(f"[{dataset}/{variant}] 결과 파일이 없습니다. 먼저 run 을 실행하세요.")
+    C, cycles, ids = load_curves(variant, dataset)
     scorers = {}
 
     def sc(n, thr):
@@ -286,7 +313,7 @@ def finalize(variant="raw"):
     best = {}
     for key, bucket in pool.items():
         rows_t, ps, eol, n = key
-        s = sc(n, thr_of(eol))
+        s = sc(n, thr_of(eol, dataset))
         scored = [(sum(s.pack(list(p)) for p in packs), packs) for packs in bucket]
         v, packs = max(scored, key=lambda x: x[0])
         best[key] = (v, min(s.pack(list(p)) for p in packs),
@@ -312,15 +339,22 @@ def finalize(variant="raw"):
     seedvar = inst[inst.inventory_size == C.shape[0]]
 
     OUT.mkdir(parents=True, exist_ok=True)
-    sfx = "" if variant == "raw" else f"_{variant}"
+    sfx = DATASETS[dataset]["tag"] + ("" if variant == "raw" else f"_{variant}")
     main.to_csv(OUT / f"g1_instances{sfx}.csv", index=False)
     pd.DataFrame(logs).to_csv(OUT / f"search_log{sfx}.csv", index=False)
     gate = make_gate(main, seedvar)
     gate.to_csv(OUT / f"g1_gate{sfx}.csv", index=False)
-    if variant == "raw":
+    if variant == "raw" and dataset == "nmc":
         figure_b(gate)
-    write_repro(variant, sfx)
-    print(f"[{variant}] 인스턴스 {len(main)}줄, 기준선이 갱신된 경우 "
+    elif variant == "raw":
+        # NMC Figure B는 그대로 두고, LFP 줄을 더한 새 그림을 따로 만든다
+        nmc_path = OUT / "g1_gate.csv"
+        nmc = pd.read_csv(nmc_path) if nmc_path.exists() else gate.iloc[0:0]
+        if nmc.empty:
+            print("figure_b_lfp: g1_gate.csv(NMC)가 없어 LFP 줄만 그림")
+        figure_b(nmc, lfp_gate=gate, out_path=OUT / f"figure_b{DATASETS[dataset]['tag']}.png")
+    write_repro(variant, sfx, dataset)
+    print(f"[{dataset}/{variant}] 인스턴스 {len(main)}줄, 기준선이 갱신된 경우 "
           f"O10 {int(main.refreshed_O10.sum())} / O0 {int(main.refreshed_O0.sum())}")
     return main, gate
 
@@ -345,7 +379,7 @@ def make_gate(inst, seedvar):
             r["seedvar_G_info_min"] = ((sv.V_O10_search - sv.V_Current) / sv.V_Current).min()
             r["seedvar_G_info_max"] = ((sv.V_O10_search - sv.V_Current) / sv.V_Current).max()
         r["passes_g1"] = (bool(r["G_info_p05"] > 0.10)
-                          if (eol == 60 and size == 64 and var == "raw") else None)
+                          if (chem == "NMC" and eol == 60 and size == 64 and var == "raw") else None)
         rows.append(r)
     return pd.DataFrame(rows)
 
@@ -354,58 +388,78 @@ FIG_COLORS = {32: "#eb6834", 64: "#2a78d6", 86: "#1baf7a"}   # 색약 검사 통
 FIG_MARKERS = {32: "s", 64: "o", 86: "D"}
 
 
-def figure_b(gate, eol=60, out_path=None):
+def figure_b(gate, eol=60, out_path=None, lfp_gate=None):
     """Figure B: 팩 크기별 G_info, 재고 크기 32/64/86셀을 한 그림에.
 
     점마다 (팩 수, 미사용 셀 수)를 적어 '팩 크기 효과'와 '팩 수·미사용 효과'를 함께 읽게 한다.
     32·64셀은 재고 1,000개의 중앙값과 p05~p95 띠, 86셀은 데이터 전체 1개.
+    lfp_gate 를 주면 LFP(UConn 24셀) 줄을 더한 새 그림을 만든다 (figure_b_lfp.png).
+    LFP는 다른 데이터셋이라 직접 비교하지 않도록 무채색 점선 + 삼각형으로 따로 표시한다.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    g = gate[(gate.eol_pct == eol) & (gate.variant == "raw")]
-    if g.empty:
+    g = gate[(gate.eol_pct == eol) & (gate.variant == "raw")] if len(gate) else gate
+    lf = (lfp_gate[(lfp_gate.eol_pct == eol) & (lfp_gate.variant == "raw")]
+          if lfp_gate is not None else None)
+    if g.empty and (lf is None or lf.empty):
         print(f"Figure B: EOL {eol}% 결과가 없어 건너뜀")
         return
     INK, MUTED, GRID, SURF = "#0b0b0b", "#52514e", "#e7e6e2", "#fcfcfb"
+    LFP_COL = "#3d3c39"
     fig, ax = plt.subplots(figsize=(7.6, 4.9), dpi=200, facecolor=SURF)
     ax.set_facecolor(SURF)
-    sizes = sorted(g.inventory_size.unique())
-    offsets = {32: -0.45, 64: 0.0, 86: 0.45}          # 겹치지 않게 살짝 옆으로
+    has_lfp = lf is not None and not lf.empty
+    # 겹치지 않게 살짝 옆으로 (LFP가 있으면 네 줄이 나란히 서도록 간격을 다시 나눔)
+    offsets = ({32: -0.5, 64: -0.17, 86: 0.17, "lfp": 0.5} if has_lfp
+               else {32: -0.45, 64: 0.0, 86: 0.45})
     tag_dy = {32: -9, 64: 8, 86: 8}                    # 32셀 라벨은 점 아래, 나머지는 위
-    for size in sizes:
-        d = g[g.inventory_size == size].sort_values("pack_size")
-        x = d.pack_size.values + offsets.get(size, 0)
+
+    series = [("nmc", size, g[g.inventory_size == size].sort_values("pack_size"))
+              for size in sorted(g.inventory_size.unique())] if len(g) else []
+    if lf is not None and not lf.empty:
+        series.append(("lfp", int(lf.inventory_size.max()), lf.sort_values("pack_size")))
+
+    for kind, size, d in series:
+        is_lfp = kind == "lfp"
+        x = d.pack_size.values + offsets.get("lfp" if is_lfp else size, 0)
         y = 100 * d.G_info_median.values
-        col = FIG_COLORS.get(size, "#6250d6")
+        col = LFP_COL if is_lfp else FIG_COLORS.get(size, "#6250d6")
         many = d.n_instances.max() > 1
         if many:   # 재고 1,000개의 p05~p95 (띠 대신 막대: 겹쳐도 읽힌다)
             ax.vlines(x, 100 * d.G_info_p05, 100 * d.G_info_p95, color=col, lw=2.2, alpha=0.35,
                       zorder=2, capstyle="round")
-        ax.plot(x, y, color=col, lw=2.6 if size == 64 else 2.0, zorder=3)
-        ax.scatter(x, y, s=46, marker=FIG_MARKERS.get(size, "o"), color=col,
-                   edgecolor=SURF, linewidth=1.8, zorder=4)
+        ax.plot(x, y, color=col, lw=2.6 if size == 64 and not is_lfp else 2.0, zorder=3,
+                ls=(0, (4, 2.5)) if is_lfp else "-")
+        ax.scatter(x, y, s=52 if is_lfp else 46, marker="^" if is_lfp else FIG_MARKERS.get(size, "o"),
+                   color=col, edgecolor=SURF, linewidth=1.8, zorder=4)
         for xi, (ps, yi) in zip(x, zip(d.pack_size, y)):
             P, U = size // ps, size % ps
             tag = f"{P}p" + (f"+{U}u" if U else "")
-            dy = tag_dy.get(size, 8)
-            dx, ha = (5, "left") if size == 86 else (0, "center")   # 86셀 라벨은 오른쪽으로 비켜서
+            dy = -9 if is_lfp else tag_dy.get(size, 8)
+            dx, ha = (5, "left") if (size == 86 or is_lfp) else (0, "center")
             ax.annotate(tag, (xi, yi), xytext=(dx, dy), textcoords="offset points",
                         ha=ha, va="bottom" if dy > 0 else "top", fontsize=6.8,
                         color=MUTED, zorder=5)
-        label = (f"{size}-cell inventories (median of {d.n_instances.max()})" if many
-                 else f"all {size} cells (1 inventory)")
-        last_x, last_y = x[-1], y[-1]
-        ax.annotate(f"{size}", (last_x, last_y), xytext=(10, 0), textcoords="offset points",
+        if is_lfp:
+            label = f"LFP: all {size} cells, UConn 2nd life (1 inventory)"
+            end = f"LFP {size}"
+        else:
+            label = (f"NMC {size}-cell inventories (median of {d.n_instances.max()})" if many
+                     else f"NMC all {size} cells (1 inventory)")
+            end = f"{size}"
+        ax.annotate(end, (x[-1], y[-1]), xytext=(10, 0), textcoords="offset points",
                     va="center", fontsize=9, fontweight="bold", color=INK)
-        ax.plot([], [], color=col, lw=2.2, marker=FIG_MARKERS.get(size, "o"), label=label)
+        ax.plot([], [], color=col, lw=2.2, marker="^" if is_lfp else FIG_MARKERS.get(size, "o"),
+                ls=(0, (4, 2.5)) if is_lfp else "-", label=label)
 
+    allg = pd.concat([d for _, _, d in series])
     ax.axhline(10, color=MUTED, lw=1, ls=(0, (3, 3)), zorder=0)
-    ax.text(3.45, 11.2, "G1 criterion: p05 > 10% (judged on 64-cell)", fontsize=7.5, color=MUTED)
-    ax.set_xticks(sorted(g.pack_size.unique()))
+    ax.text(3.45, 11.2, "G1 criterion: p05 > 10% (judged on NMC 64-cell)", fontsize=7.5, color=MUTED)
+    ax.set_xticks(sorted(allg.pack_size.unique()))
     ax.set_xlim(3.2, 17.4)
-    ax.set_ylim(0, max(80, 100 * g.G_info_p95.max() + 14))
+    ax.set_ylim(0, max(80, 100 * allg.G_info_p95.max() + 14))
     ax.set_xlabel("pack size (cells in series)", color=MUTED)
     ax.set_ylabel("G_info: gain of full future information (%)", color=MUTED)
     ax.grid(axis="y", color=GRID, lw=0.8)
@@ -415,18 +469,25 @@ def figure_b(gate, eol=60, out_path=None):
     for side in ("left", "bottom"):
         ax.spines[side].set_color("#c9c8c3")
     ax.tick_params(colors=MUTED, labelsize=9)
-    fig.text(0.075, 0.975, f"Figure B. Value of future information vs pack size (NMC, EOL {eol}%)",
-             fontsize=11, color=INK, fontweight="bold", ha="left", va="top")
-    fig.text(0.075, 0.925, "Point labels: packs (p) + unused cells (u). Bars: p05-p95 over 1,000 random "
-             "inventories.\nGain grows with pack size while packs stay numerous; few packs pull it down, "
-             "unused cells push it up.", fontsize=7.3, color=MUTED, ha="left", va="top", linespacing=1.4)
+    if lf is None:
+        title = f"Figure B. Value of future information vs pack size (NMC, EOL {eol}%)"
+        sub = ("Point labels: packs (p) + unused cells (u). Bars: p05-p95 over 1,000 random "
+               "inventories.\nGain grows with pack size while packs stay numerous; few packs pull it "
+               "down, unused cells push it up.")
+    else:
+        title = f"Figure B with LFP. Value of future information vs pack size (EOL {eol}%)"
+        sub = ("Point labels: packs (p) + unused cells (u). Bars: p05-p95 over 1,000 random NMC "
+               "inventories.\nLFP (dashed) is a separate external check on another dataset: "
+               "read its shape, do not compare its numbers with NMC.")
+    fig.text(0.075, 0.975, title, fontsize=11, color=INK, fontweight="bold", ha="left", va="top")
+    fig.text(0.075, 0.925, sub, fontsize=7.3, color=MUTED, ha="left", va="top", linespacing=1.4)
     ax.legend(frameon=False, fontsize=7.8, loc="upper left", labelcolor=INK)
     fig.subplots_adjust(left=0.085, right=0.95, top=0.85, bottom=0.11)
     fig.savefig(out_path or OUT / "figure_b.png", facecolor=SURF)
     plt.close(fig)
 
 
-def write_repro(variant, sfx):
+def write_repro(variant, sfx, dataset="nmc"):
     def sha(p):
         return hashlib.sha256(p.read_bytes()).hexdigest()[:12] if p.exists() else None
     try:
@@ -435,13 +496,18 @@ def write_repro(variant, sfx):
                                              text=True).strip())
     except Exception:
         commit, dirty = "unknown", None
-    info = dict(variant=variant, code_commit=commit, code_dirty=dirty,
-                data_sha={n: sha(PROCESSED_DIR / n) for n in ("C_full.npz", "C_full_excl.npz")},
+    ds = DATASETS[dataset]
+    info = dict(dataset=dataset, chemistry=ds["chemistry"], variant=variant,
+                code_commit=commit, code_dirty=dirty,
+                data_sha={n: sha(PROCESSED_DIR / n) for n in sorted(set(ds["files"].values()))},
                 search_config=S.SearchConfig.from_yaml(CONFIG_PATH).to_dict(),
-                eol_thresholds_ah={e: thr_of(e) for e in EOL_PCTS},
+                nominal_ah=ds["nominal"],
+                eol_thresholds_ah={e: thr_of(e, dataset) for e in EOL_PCTS},
                 curve_handling={"raw": "측정값 그대로", "monotone": "누적 최솟값 단조 곡선",
                                 "excl": "C_full_excl (저자 제외점 보간)"}[variant],
-                instances=f"32/64셀 시드 0~{N_INSTANCES - 1}, 86셀 1개 (instances.csv)",
+                instances=(f"32/64셀 시드 0~{N_INSTANCES - 1}, 86셀 1개 (instances.csv)"
+                           if dataset == "nmc" else
+                           f"{ds['inv'][0]}셀 전체 1개 (instances{ds['tag']}.csv), 규칙 docs/stage1_lfp_rules.md"),
                 unused_rule="방식마다 미사용 셀을 스스로 정함 (9가지 변경 7번)",
                 written_at=datetime.now().isoformat(timespec="seconds"))
     (OUT / f"g1_repro{sfx}.json").write_text(json.dumps(info, ensure_ascii=False, indent=2),
@@ -453,9 +519,11 @@ def write_repro(variant, sfx):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("step", choices=["run", "seedvar", "finalize"])
+    ap.add_argument("--dataset", choices=list(DATASETS), default="nmc",
+                    help="nmc: Deep Sorting 86셀 (기본) / uconn: LFP 2차 수명 24셀")
     ap.add_argument("--variant", choices=VARIANTS, default="raw")
-    ap.add_argument("--inv", type=int, nargs="*", default=list(INVENTORY_SIZES))
-    ap.add_argument("--pack", type=int, nargs="*", default=list(PACK_SIZES))
+    ap.add_argument("--inv", type=int, nargs="*", default=None, help="기본: 데이터셋 설정")
+    ap.add_argument("--pack", type=int, nargs="*", default=None, help="기본: 데이터셋 설정")
     ap.add_argument("--eol", type=int, nargs="*", default=list(EOL_PCTS))
     ap.add_argument("--n-instances", type=int, default=N_INSTANCES)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
@@ -466,28 +534,37 @@ def main():
     if not 0 <= shard_i < shard_k:
         raise SystemExit("--shard 는 0/2, 1/2 처럼 i/k (0 <= i < k)")
 
+    ds = DATASETS[a.dataset]
+    if a.variant not in ds["files"]:
+        raise SystemExit(f"--dataset {a.dataset} 에는 --variant {a.variant} 가 없습니다 "
+                         f"(가능: {', '.join(ds['files'])})")
+    inv = a.inv if a.inv is not None else list(ds["inv"])
+    packs = a.pack if a.pack is not None else list(ds["packs"])
+
     if a.step == "finalize":
-        finalize(a.variant)
+        finalize(a.variant, a.dataset)
         return
 
-    C, cycles, ids = load_curves(a.variant)
+    C, cycles, ids = load_curves(a.variant, a.dataset)
+    print(f"데이터: {a.dataset} ({ds['chemistry']}, {C.shape[0]}셀, 정격 {ds['nominal']}Ah)")
     for e in a.eol:   # 2절: 미도달 셀 수를 먼저 확인
-        n_cens = int(np.isinf(t_eol_from_C(C, cycles, thr_of(e))).sum())
-        print(f"EOL {e}% ({thr_of(e):.2f} Ah): 미도달 셀 {n_cens}개")
+        thr = thr_of(e, a.dataset)
+        n_cens = int(np.isinf(t_eol_from_C(C, cycles, thr)).sum())
+        print(f"EOL {e}% ({thr:.2f} Ah): 미도달 셀 {n_cens}개")
 
     if a.step == "run":
-        inst = make_instances(C.shape[0], a.n_instances)
-        save_instance_list(inst, ids)
-        inst = [x for x in inst if x[0] in a.inv]
-        tasks = [(s, k, r, p, e) for s, k, r in inst for e in a.eol for p in a.pack]
-    else:   # seedvar: 86셀, 탐색 시드 5개 (시드 0은 run 결과와 같은 파일)
+        inst = make_instances(C.shape[0], a.n_instances, ds["inv"])
+        save_instance_list(inst, ids, a.dataset)
+        inst = [x for x in inst if x[0] in inv]
+        tasks = [(s, k, r, p, e) for s, k, r in inst for e in a.eol for p in packs]
+    else:   # seedvar: 전체 셀 재고, 탐색 시드 5개 (시드 0은 run 결과와 같은 파일)
         rows = np.arange(C.shape[0])
         tasks = [(C.shape[0], 0, rows, p, e, (None if ss == 0 else ss))
-                 for ss in SEEDVAR_SEEDS for e in a.eol for p in a.pack]
+                 for ss in SEEDVAR_SEEDS for e in a.eol for p in packs]
     if shard_k > 1:   # 과제 순서가 고정이라 두 컴퓨터가 서로 겹치지 않는 조각을 맡는다
         tasks = [t for i, t in enumerate(tasks) if i % shard_k == shard_i]
         print(f"조각 {shard_i}/{shard_k}: 과제 {len(tasks)}개를 맡음")
-    run_tasks(tasks, a.variant, a.workers)
+    run_tasks(tasks, a.variant, a.workers, a.dataset)
 
 
 if __name__ == "__main__":
