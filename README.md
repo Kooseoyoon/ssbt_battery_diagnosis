@@ -21,7 +21,7 @@ src/
     pack.py                  # 팩 성능 V, 상한 UB, 빠른 채점기 PackScorer (Stage 1·4~7 공용)
     search.py                # 배정 탐색: 정렬/무작위 시작, 교환 탐색, (선택) SA, best_of
   stage1_exhaustive.py       # 작은 문제 전수 검사로 탐색 설정 확인
-  stage1_g1.py               # 미래 정보 가치 G1 본 계산 (Current vs Oracle), Figure B
+  stage1_g1.py               # 미래 정보 가치 G1 본 계산 (Current vs Oracle), Figure B. --dataset uconn 으로 LFP
   stage2_features.py         # 진단 특징량 추출
   stage3_gp_predict.py       # Gaussian Process 궤적 예측
   stage4_pack_assembly.py    # 팩 조립 최적화
@@ -41,6 +41,7 @@ docs/
   SETUP.md                   # GitHub + Google Drive 세팅 가이드
   stage1_common_README.txt   # pack.py / search.py 설명과 수정 내역
   stage1_sa_decision.md      # 탐색 설정 결정 (SA 끔) 근거
+  stage1_lfp_rules.md        # LFP(UConn) G1 실행 전 규칙
 ```
 
 ## 빠른 시작 (로컬)
@@ -51,4 +52,6 @@ source .venv/bin/activate   # 또는 conda activate ssbt-battery
 python -m pytest tests -q                              # 테스트
 python src/stage1_g1.py run --inv 64 --eol 60 --workers 4   # Stage 1 본 계산 (중단해도 이어서 함)
 python src/stage1_g1.py finalize                       # 결과 표와 Figure B (results/stage1/)
+python src/stage1_g1.py run --dataset uconn && python src/stage1_g1.py seedvar --dataset uconn \
+  && python src/stage1_g1.py finalize --dataset uconn   # LFP G1 -> g1_gate_lfp.csv, figure_b_lfp.png (1분 이내)
 ```

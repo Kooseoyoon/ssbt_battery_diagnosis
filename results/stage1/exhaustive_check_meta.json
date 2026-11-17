@@ -1,0 +1,41 @@
+{
+  "data_sha": "626ad8f0f9d9",
+  "code_commit": "a4ff7b7",
+  "thr": 1.44,
+  "base_config": {
+    "n_random_starts": 20,
+    "seed": 0,
+    "max_sweeps": 100,
+    "tol": 1e-09,
+    "sa_enabled": true,
+    "sa_iters": 20000,
+    "sa_t0": null,
+    "sa_t0_quantile": 0.5,
+    "sa_t0_samples": 400,
+    "sa_cooling": 0.9995,
+    "sa_end_ratio": 0.0001,
+    "sa_polish": true,
+    "sa_iters_per_neighbour": null
+  },
+  "candidates": {
+    "swap_only": {
+      "sa_enabled": false
+    },
+    "sa_2k": {
+      "sa_enabled": true,
+      "sa_iters": 2000,
+      "sa_end_ratio": 0.0001
+    },
+    "sa_5k": {
+      "sa_enabled": true,
+      "sa_iters": 5000,
+      "sa_end_ratio": 0.0001
+    },
+    "sa_20k": {
+      "sa_enabled": true,
+      "sa_iters": 20000,
+      "sa_end_ratio": 0.0001
+    }
+  },
+  "run_at": "2026-11-15T06:47:32"
+}

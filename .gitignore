@@ -34,3 +34,12 @@ data/processed/uconn/*
 !data/processed/uconn/C_uconn.npz
 !data/processed/uconn/T_eol_uconn.npy
 !data/processed/uconn/uconn_meta.csv
+
+!results/stage1/
+results/stage1/*
+!results/stage1/g1_gate*.csv
+!results/stage1/g1_instances*.csv
+!results/stage1/instances*.csv
+!results/stage1/figure_b*.png
+!results/stage1/g1_repro*.json
+!results/stage1/exhaustive_check*
