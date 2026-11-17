@@ -29,3 +29,8 @@ data/processed/external_check/
 !data/processed/C_full_excl.npz
 !data/processed/C_full_excl_log.csv
 !data/processed/T_eol_excl.npy
+!data/processed/uconn/
+data/processed/uconn/*
+!data/processed/uconn/C_uconn.npz
+!data/processed/uconn/T_eol_uconn.npy
+!data/processed/uconn/uconn_meta.csv
