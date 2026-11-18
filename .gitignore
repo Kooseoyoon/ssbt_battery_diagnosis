@@ -43,3 +43,11 @@ results/stage1/*
 !results/stage1/figure_b*.png
 !results/stage1/g1_repro*.json
 !results/stage1/exhaustive_check*
+!results/stage3/
+results/stage3/*
+!results/stage3/main/
+results/stage3/main/*
+!results/stage3/main/conformal.csv
+!results/stage3/main/summary_r0.csv
+!results/stage3/main/gp_log.csv
+!results/stage3/main/eval/
